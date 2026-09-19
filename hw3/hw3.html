@@ -122,14 +122,15 @@ void main() {
     function initBuffers() {
       vbo = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-      gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions2), gl.STATIC_DRAW);
 
       nbo = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, nbo);
-      gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors2), gl.STATIC_DRAW);
 
       ibo = gl.createBuffer();
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); 
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices2), gl.STATIC_DRAW);
     }
     initBuffers();
 
@@ -153,6 +154,8 @@ void main() {
     let mouseDown = false, lastX, lastY, cubeRotX = 0, cubeRotY = 0;
     let camX = 0, camY = 0, camZ = -6;
 
+
+    // Changed to document. from canvas.
     canvas.addEventListener('mousedown', e => { mouseDown = true; lastX = e.clientX; lastY = e.clientY; });
     canvas.addEventListener('mouseup', () => mouseDown = false);
     canvas.addEventListener('mousemove', e => {
@@ -189,7 +192,10 @@ void main() {
     box2Cube(-orthoSize * aspect, orthoSize * aspect, -orthoSize, orthoSize, zNear, zFar),
     flipZ()
 );
-    let proj = projOrtho;
+    
+    // Switched to perspective projection so "w" and "s" work
+    // let proj = projOrtho;
+    let proj = projPerspective; 
 
     let startTime = Date.now();
 
@@ -232,8 +238,10 @@ void main() {
       gl.vertexAttribPointer(colorLoc, 3, gl.FLOAT, false, 0, 0);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
 
+        console.log(indices2.length)
+
       // draw the object by the index order
-      gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+      gl.drawElements(gl.TRIANGLES, indices2.length, gl.UNSIGNED_SHORT, 0);
     }
 
     // Initialize when page loads
