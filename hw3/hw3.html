@@ -50,6 +50,7 @@ Press F12 to see the console for debugging.</p>
         <button id="cubeBtn">Cube</button>
         <button id="sphereBtn">Sphere</button>
         <button id="torusBtn">Torus</button>
+        <button id="spinBtn">Spin!</button>
       </div>
       <div>
         <label><input type="checkbox" id="pitchChk" checked> Pitch</label>
@@ -172,6 +173,8 @@ in vec3 aPosition;
 in vec3 aColor;
 
 uniform vec3 uPosition; // added!!
+uniform vec3 uRotation; // added!!
+uniform vec3 uScale;    // added!!
 
 uniform float uTime; //time in sec
 uniform mat4 uModelViewMatrix;
@@ -181,14 +184,22 @@ uniform mat4 uModelTransformationMatrix;
 out vec3 vColor;
 
 void main() {
+    /*
     float base_scale = 0.85 + 0.15 * sin(uTime * 2.0);
     
     mat4 S = scale(base_scale, base_scale, base_scale);
     mat4 R = rotate(0.0,0.0,uTime);
 
-        vec3 pos = aPosition + uPosition;
+    vec3 pos = aPosition + uPosition;
+    mat4 T = translate(uPosition[0], uPosition[1], uPosition[2]);
+*/
+
+
+    
     mat4 T = translate(uPosition[0], uPosition[1], uPosition[2]);
 
+    mat4 R = rotate(uRotation[0], uRotation[1], uRotation[2]);
+    mat4 S = scale(uScale[0], uScale[1], uScale[2]);
 
   gl_Position = uProjectionMatrix * uModelViewMatrix * uModelTransformationMatrix *T* R*S * vec4(aPosition,1.0);
   vColor = aColor;
@@ -291,20 +302,62 @@ void main() {
     const shapes = [
         {
             buffers: cubeObject,
-            position: [0, 0, 0],
+            geometry: cube,
+            position: [0, 0, -20],
             rotation: [0, 0, 0],
         },
         {
             buffers: sphereObject,
+            geometry: sphere,
             position: [3, 0, 0],
             rotation: [2, 0, 0]
         },
         {
             buffers: torusObject,
+            geometry: torus,
             position: [6, 0, 0],
             rotation: [2, 0, 3]
         },
     ];
+
+
+    function minmax(arr) {
+        let min = +Infinity;
+        let max = -Infinity;
+        for (const a of arr) {
+            min = Math.min(a, min);
+            max = Math.max(a, max);
+        }
+        return {
+            min, max
+        };
+    }
+    function getSceneDimensions() {
+        let xminAll = +Infinity, yminAll = +Infinity, zminAll = +Infinity;
+        let xmaxAll = -Infinity, ymaxAll = -Infinity, zmaxAll = -Infinity;
+        for (shape of shapes) {
+            const xs = shape.geometry.positions.filter((_, index) => index % 3 === 0);
+            const ys = shape.geometry.positions.filter((_, index) => index % 3 === 1);
+            const zs = shape.geometry.positions.filter((_, index) => index % 3 === 2);
+            const {min: xmin, max: xmax} = minmax(xs);
+            const {min: ymin, max: ymax} = minmax(ys);
+            const {min: zmin, max: zmax} = minmax(zs);
+
+            xminAll = Math.min(xminAll, xmin + shape.position[0]);
+            yminAll = Math.min(yminAll, ymin + shape.position[1]);
+            zminAll = Math.min(zminAll, zmin + shape.position[2]);
+
+            xmaxAll = Math.max(xmaxAll, xmax + shape.position[0]);
+            ymaxAll = Math.max(ymaxAll, ymax + shape.position[1]);
+            zmaxAll = Math.max(zmaxAll, zmax + shape.position[2]);
+            
+        }
+
+        return {
+            xminAll, yminAll, zminAll,
+            xmaxAll, ymaxAll, zmaxAll
+        };
+    }
 
     /* function initShaderProgram() {
       try {
@@ -354,7 +407,8 @@ void main() {
       let dy = e.clientY - lastY;
       cubeRotY += dx * 0.01;
       cubeRotX += dy * 0.01;
-      lastX = e.clientX; lastY = e.clientY;
+      lastX = e.clientX; 
+      lastY = e.clientY;
     });
 
     document.addEventListener('keydown', e => {
@@ -381,11 +435,33 @@ void main() {
         { passive: false }    // in case the browser ignores preventDefault()
     );
 
+    document.getElementById("cubeBtn").onclick = () => shapes.push({
+        buffers: cubeObject,
+        geometry: cube,
+        position: [shapes.length*3, 0, 0],
+        rotation: [0, 0, 0],
+    });
+    document.getElementById("sphereBtn").onclick = () => shapes.push({
+            buffers: sphereObject,
+            geometry: sphere,
+            position: [shapes.length*3, 0, 0],
+            rotation: [2, 0, 0]
+    });
+    document.getElementById("torusBtn").onclick = () => shapes.push({
+            buffers: torusObject,
+            geometry: torus,
+            position: [shapes.length*3, 0, 0],
+            rotation: [2, 0, 3]
+    });
+    document.getElementById("spinBtn").onclick = () => 
+        rotationSpeed = 50.0;
 
-
-    
+const fovText = document.getElementById("fovText");
+    let fov = Number(fovText.textContent) * Math.PI / 180;
     // Projection setup
-    let fov = Math.PI / 4, aspect = canvas.width / canvas.height, zNear = 0.1, zFar = 100;
+    //let fov = Math.PI / 4, 
+    
+    let aspect = canvas.width / canvas.height, zNear = 0.1, zFar = 100;
 
     let orthoSize = 2.5;
 
@@ -393,7 +469,7 @@ void main() {
     let projPerspective = perspective(fov, aspect, zNear, zFar);
 
 
-    const fovText = document.getElementById("fovText");
+    
     document.getElementById("slider").addEventListener("input", e => {
         fovText.textContent = e.target.value;
         fov = e.target.value * Math.PI / 180;
@@ -456,12 +532,16 @@ void main() {
     let proj = projPerspective;
     
     let startTime = Date.now();
+    let rotationSpeed = 0.01;
+
+    console.log(getSceneDimensions());
 
     function render() {
       gl.enable(gl.DEPTH_TEST);
       gl.clearColor(0, 0, 0, 1);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+        rotationSpeed = 0.002;
         for (shape of shapes) {
             // rotation matrices
             /* let cx = Math.cos(shape.rotations[1]), sx = Math.sin(shape.rotations[1]);
@@ -471,12 +551,15 @@ void main() {
             let rotation = multiplyMat4(rotY, rotX);
             */
 
+            shape.rotation[0] += Math.max(rotationSpeed, 0.01);
+            shape.rotation[1] += Math.max(rotationSpeed, 0.01);
+
             // note: switched cx/sx and cy/sz so they are rotations[0] and rotations[1] and used in rotX and rotY
-            let cx = Math.cos(shape.rotation[0]), sx = Math.sin(shape.rotation[0]);
-            let cy = Math.cos(shape.rotation[1]), sy = Math.sin(shape.rotation[1]);
-            let rotX = [1, 0, 0, 0, 0, cx, sx, 0, 0, -sx, cx, 0, 0, 0, 0, 1];
-            let rotY = [cy, 0, -sy, 0, 0, 1, 0, 0, sy, 0, cy, 0, 0, 0, 0, 1];
-            let rotation = multiplyMat4(rotY, rotX);
+            // let cx = Math.cos(shape.rotation[0]), sx = Math.sin(shape.rotation[0]);
+            // let cy = Math.cos(shape.rotation[1]), sy = Math.sin(shape.rotation[1]);
+            // let rotX = [1, 0, 0, 0, 0, cx, sx, 0, 0, -sx, cx, 0, 0, 0, 0, 1];
+            // let rotY = [cy, 0, -sy, 0, 0, 1, 0, 0, sy, 0, cy, 0, 0, 0, 0, 1];
+            // let rotation = multiplyMat4(rotY, rotX);
 
 
             // init model-view matrix as identity matrix
@@ -487,12 +570,20 @@ void main() {
             //delta time in ms
             let deltaTime = Date.now() - startTime;
             // object rotation
-            modelTransformationMatrix = multiplyMat4(modelTransformationMatrix, rotation);
+            // modelTransformationMatrix = multiplyMat4(modelTransformationMatrix, rotation);
             // camera translation
             modelViewMatrix = mat4Translate(modelViewMatrix, [camX, camY, camZ]);
 
 const uPositionLoc = gl.getUniformLocation(program, "uPosition");
 gl.uniform3fv(uPositionLoc, shape.position);
+const uRotationLoc = gl.getUniformLocation(program, "uRotation");
+gl.uniform3fv(uRotationLoc, shape.rotation);
+    const by = 0.85 + 0.15 * Math.sin(2.0* deltaTime/1000);
+    const uScaleLoc = gl.getUniformLocation(program, "uScale");    
+    gl.uniform3fv(uScaleLoc, new Float32Array([by, by, by]));    
+
+
+
 
             //set time in seconds
             gl.uniform1f(timeLoc, deltaTime/1000.0);
