@@ -22,16 +22,40 @@
     canvas {
       border: 1px solid #444;
     }
+    .actionBtn {
+        background: #ff9f1c;
+        color: #111;
+        border: 2px solid #ffbf69;
+        border-radius: 6px;
+        padding: 6px 14px;
+        font: bold 14px monospace;
+        cursor: pointer;
+    }
+
+    .actionBtn:hover {
+        background: #ffbf69;
+    }
+
+    .actionBtn:active {
+        transform: scale(0.95);
+    }
+
+    .action-row {
+        padding-bottom: 12px;
+        margin-bottom: 12px;
+    }
   </style>
 </head>
 
 <body>
   <h2>Interactive Controls & Geometric Primitives</h2>
-  <p>Edit vertex and fragment shaders on the left to get the result instantly.<br>
-  Use mouse to drag and rotate the cube. <br>
-Use arrow keys and w, s keys to move the camera.<br>
-Save your code to source file if you want to save it.<br>
-Press F12 to see the console for debugging.</p>
+  <p>
+    Edit vertex and fragment shaders on the left to get the result instantly.<br>
+    Use mouse to drag and rotate the objects. <br>
+    Use arrow keys to move the camera and w/s keys or the mouse wheel to zoom in and out.<br>
+    Save your code to source file if you want to save it.<br>
+    Press F12 to see the console for debugging.
+</p>
 
   <div style="display: flex; gap: 10px; align-items: flex-start;">
     <div style="display: flex; flex-direction: column; gap: 10px;">
@@ -46,176 +70,126 @@ Press F12 to see the console for debugging.</p>
     </div>
     <div>
       <canvas id="glcanvas" width="400" height="400"></canvas>
-        <div>
+      <div class="action-row">
+        <button class="actionBtn" id="spinBtn">Spin</button>
+        <button class="actionBtn" id="scaleBtn">Bump</button>
+        <button class="actionBtn" id="orbitBtn">Marmalade!</button>
+      </div>
+      <div>
         <button id="cubeBtn">Cube</button>
         <button id="sphereBtn">Sphere</button>
         <button id="torusBtn">Torus</button>
-        <button id="spinBtn">Spin!</button>
+        <button id="coneBtn">Cone</button>
+        <button id="cylinderBtn">Cylinder</button>
       </div>
       <div>
-        <label><input type="checkbox" id="pitchChk" checked> Pitch</label>
-        <label><input type="checkbox" id="rollChk" checked> Roll</label>
-        <label><input type="checkbox" id="yawChk" checked> Yaw</label>
-      </div>
-      <div>
+
         <input type="range" min="10" max="120" value="45" id="slider">
-        FOV: <span id="fovText">45</span>
+        <span id="projText">FOV: 45</span>
+      </div>
+      <div>
+        <label><input type="radio" name="proj" value="persp" checked>Persp</label>
+        <label><input type="radio" name="proj" value="ortho">Ortho</label>
       </div>
     </div>
   </div>
 
-
-  <!-- From hw2.html -->
-<script id="shader-functions" type="x-shader/x-vertex">
- 
-
-  /////////////////////////////////////////////////////////////////////////
-  // GLSL’s mat3(...) constructor fills the matrix by columns, not by rows.
-  /////////////////////////////////////////////////////////////////////////
-
-  mat4 translate(float tx, float ty, float tz) {
-    return mat4(
-         1.0, 0.0, 0.0, 0.0,
-         0.0, 1.0, 0.0, 0.0,
-         0.0, 0.0, 1.0, 0.0,
-          tx,  ty, tz, 1.0
-    );
-  }
-
-  mat4 scale(float sx, float sy, float sz) {
-    return mat4(
-         sx, 0.0, 0.0, 0.0,
-        0.0,  sy, 0.0, 0.0,
-        0.0, 0.0, sz, 0.0,
-        0.0, 0.0, 0.0, 1.0
-    );
-  }
-
-  // Counterclockwise rotation
-  mat4 xRotate(float angle) {
-    float c = cos(angle);
-    float s = sin(angle);
-    return mat4(
-        1.0, 0.0, 0.0, 0.0,
-        0.0,   c,   s, 0.0,
-        0.0,   -s,   c, 0.0,
-        0.0, 0.0, 0.0, 1.0
-    );
-  }
-
-  mat4 yRotate(float angle) {
-    float c = cos(angle);
-    float s = sin(angle);
-    return mat4(
-          c, 0.0,  -s, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-          s, 0.0,   c, 0.0,
-        0.0, 0.0, 0.0, 1.0
-    );
-  }
-
-  mat4 zRotate(float angle) {
-    float c = cos(angle);
-    float s = sin(angle);
-    return mat4(
-          c,   s, 0.0, 0.0,
-         -s,   c, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0
-    );
-  }
-
-  mat4 rotate(float x_angle, float y_angle, float z_angle) {
-    return zRotate(z_angle) * yRotate(y_angle) * xRotate(x_angle);
-  }
-/*
-  // Reflect across a line through the origin
-  mat3 mirror(float angle) {
-    float c = cos(2.0*angle);
-    float s = sin(2.0*angle);
-    return mat3(
-           c,   s, 0.0,
-           s,  -c, 0.0,
-         0.0, 0.0, 1.0
-    );
-  }
-
-  mat3 shear(float shx, float shy) {
-    return mat3(
-        1.0, shy, 0.0,
-        shx, 1.0, 0.0,
-        0.0, 0.0, 1.0
-    );
-  }
-  */
-
-  /*
-  void main() {
-    float base_scale = 0.85 + 0.15 * sin(uTime * 2.0);
-    
-    mat3 T = translate(0.5 * sin(2.0 * uTime), 0.5 * cos(2.0 * uTime));
-    mat3 S = scale(base_scale, base_scale);
-    mat3 R = rotate(uTime);
-    mat3 M = mirror(0.0);       // reflect across x-axis
-    mat3 H = shear(1.0, 0.0);   // horizontal shear
-    
-    vec3 p = vec3(aPosition.xy, 1.0);   // homogeneous 2D
-    vec2 pos = (T * S * R * M * H * p).xy;        // right to left
-   
-    gl_Position = vec4(pos, aPosition.z, 1.0);  // re-insert z
-    vColor = aColor;
-    
-  } */
-  </script>
   <!-- Vertex shader -->
   <script id="vertex-shader" type="x-shader/x-vertex">#version 300 es
-in vec3 aPosition;
-in vec3 aColor;
+    in vec3 aPosition;
+    in vec3 aColor;
 
-uniform vec3 uPosition; // added!!
-uniform vec3 uRotation; // added!!
-uniform vec3 uScale;    // added!!
+    uniform vec3 uPosition;
+    uniform vec3 uRotation;
+    uniform vec3 uScale;
 
-uniform float uTime; //time in sec
-uniform mat4 uModelViewMatrix;
-uniform mat4 uProjectionMatrix;
-uniform mat4 uModelTransformationMatrix;
+    uniform float uTime; //time in sec
+    uniform mat4 uModelViewMatrix;
+    uniform mat4 uProjectionMatrix;
+    uniform mat4 uModelTransformationMatrix;
 
-out vec3 vColor;
+    out vec3 vColor;
 
-void main() {
-    /*
-    float base_scale = 0.85 + 0.15 * sin(uTime * 2.0);
-    
-    mat4 S = scale(base_scale, base_scale, base_scale);
-    mat4 R = rotate(0.0,0.0,uTime);
+    /////////////////////////////////////////////////////////////////////////
+    // GLSL’s mat4(...) constructor fills the matrix by columns, not by rows.
+    /////////////////////////////////////////////////////////////////////////
 
-    vec3 pos = aPosition + uPosition;
-    mat4 T = translate(uPosition[0], uPosition[1], uPosition[2]);
-*/
+    mat4 translate(float tx, float ty, float tz) {
+        return mat4(
+                1.0, 0.0, 0.0, 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                tx,  ty, tz, 1.0
+        );
+    }
 
+    mat4 scale(float sx, float sy, float sz) {
+        return mat4(
+                sx, 0.0, 0.0, 0.0,
+                0.0,  sy, 0.0, 0.0,
+                0.0, 0.0, sz, 0.0,
+                0.0, 0.0, 0.0, 1.0
+        );
+    }
 
-    
-    mat4 T = translate(uPosition[0], uPosition[1], uPosition[2]);
+    // Counterclockwise rotation
+    mat4 xRotate(float angle) {
+        float c = cos(angle);
+        float s = sin(angle);
+        return mat4(
+            1.0, 0.0, 0.0, 0.0,
+            0.0,   c,   s, 0.0,
+            0.0,   -s,   c, 0.0,
+            0.0, 0.0, 0.0, 1.0
+        );
+    }
 
-    mat4 R = rotate(uRotation[0], uRotation[1], uRotation[2]);
-    mat4 S = scale(uScale[0], uScale[1], uScale[2]);
+    mat4 yRotate(float angle) {
+        float c = cos(angle);
+        float s = sin(angle);
+        return mat4(
+            c, 0.0,    -s, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            s, 0.0,     c, 0.0,
+            0.0, 0.0, 0.0, 1.0
+        );
+    }
 
-  gl_Position = uProjectionMatrix * uModelViewMatrix * uModelTransformationMatrix *T* R*S * vec4(aPosition,1.0);
-  vColor = aColor;
-}
-</script>
+    mat4 zRotate(float angle) {
+        float c = cos(angle);
+        float s = sin(angle);
+        return mat4(
+            c,   s, 0.0, 0.0,
+            -s,   c, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0
+            );
+    }
+
+    mat4 rotate(float xAngle, float yAngle, float zAngle) {
+        return zRotate(zAngle) * yRotate(yAngle) * xRotate(xAngle);
+    }
+
+    void main() {
+        mat4 T = translate(uPosition[0], uPosition[1], uPosition[2]);
+        mat4 R = rotate(uRotation[0], uRotation[1], uRotation[2]);
+        mat4 S = scale(uScale[0], uScale[1], uScale[2]);
+
+        gl_Position = uProjectionMatrix * uModelViewMatrix * T * uModelTransformationMatrix * R * S * vec4(aPosition,1.0);
+        vColor = aColor;
+    }
+    </script>
   <!-- Fragment Shader -->
   <script id="fragment-shader" type="x-shader/x-fragment">#version 300 es
-precision mediump float;
-in vec3 vColor;
+    precision mediump float;
+    in vec3 vColor;
 
-out vec4 fragColor;
+    out vec4 fragColor;
 
-void main() {
-  fragColor = vec4(vColor,1.0);
-}
-</script>
+    void main() {
+        fragColor = vec4(vColor,1.0);
+    }
+  </script>
 
   <script src="primitives.js"></script>
   <script src="transformations.js"></script>
@@ -258,68 +232,73 @@ void main() {
     let vbo, nbo, ibo;
 
     // // Buffers
-    // function initBuffers() {
-    //   vbo = gl.createBuffer();
-    //   gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    //   gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-
-    //   nbo = gl.createBuffer();
-    //   gl.bindBuffer(gl.ARRAY_BUFFER, nbo);
-    //   gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
-
-    //   ibo = gl.createBuffer();
-    //   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-    // gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-    // }
-    // initBuffers();
-
-    function createBuffers(object) {
+    function createBuffers(shape) {
       vbo = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-      gl.bufferData(gl.ARRAY_BUFFER, object.positions, gl.STATIC_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, shape.positions, gl.STATIC_DRAW);
 
       nbo = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, nbo);
-      gl.bufferData(gl.ARRAY_BUFFER, object.colors, gl.STATIC_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, shape.colors, gl.STATIC_DRAW);
 
       ibo = gl.createBuffer();
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, object.indices, gl.STATIC_DRAW);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, shape.indices, gl.STATIC_DRAW);
 
       return {
         positionBuffer: vbo,
         colorBuffer: nbo,
         indexBuffer: ibo,
-        indexSize: object.indices.length
+        indexSize: shape.indices.length
       };
     }
 
-    // Put each shape on GPU only once
+    // Load each shape onto GPU once
     const cubeObject = createBuffers(cube);
     const sphereObject = createBuffers(sphere);
     const torusObject = createBuffers(torus);
+    const coneObject = createBuffers(cone);
+    const cylinderObject = createBuffers(cylinder);
 
-    const shapes = [
-        {
-            buffers: cubeObject,
-            geometry: cube,
-            position: [0, 0, -20],
-            rotation: [0, 0, 0],
-        },
-        {
-            buffers: sphereObject,
-            geometry: sphere,
-            position: [3, 0, 0],
-            rotation: [2, 0, 0]
-        },
-        {
-            buffers: torusObject,
-            geometry: torus,
-            position: [6, 0, 0],
-            rotation: [2, 0, 3]
-        },
-    ];
+    // Return a random integer between min and max
+    function randomInt(min=-20, max=0) {
+        return Math.floor(Math.random() * (max - min + 1) + min);
+    }
 
+    const shapes = [];
+
+    for (let i = 0; i < 100; ++i) {
+        let buffers, geometry;
+        switch(i < 3 ? i : Math.floor(Math.random() * 3)) {
+            case 0:
+                buffers = cubeObject;
+                geometry = cube;
+                break;
+            case 1:
+                buffers = sphereObject;
+                geometry = sphere;
+                break;
+            case 2:
+                buffers = torusObject;
+                geometry = torus;
+                break;
+        }
+        let position = [
+            randomInt(-20, 20),
+            randomInt(-20, 20),
+            randomInt(-20, 0)
+        ];
+        let rotation =
+        [
+            randomInt(0, 360),
+            randomInt(0, 360),
+            randomInt(0, 360)
+        ];
+
+        shapes.push({
+            buffers, geometry, position, rotation
+        });
+    }
 
     function minmax(arr) {
         let min = +Infinity;
@@ -335,7 +314,7 @@ void main() {
     function getSceneDimensions() {
         let xminAll = +Infinity, yminAll = +Infinity, zminAll = +Infinity;
         let xmaxAll = -Infinity, ymaxAll = -Infinity, zmaxAll = -Infinity;
-        for (shape of shapes) {
+        for (const shape of shapes) {
             const xs = shape.geometry.positions.filter((_, index) => index % 3 === 0);
             const ys = shape.geometry.positions.filter((_, index) => index % 3 === 1);
             const zs = shape.geometry.positions.filter((_, index) => index % 3 === 2);
@@ -350,7 +329,7 @@ void main() {
             xmaxAll = Math.max(xmaxAll, xmax + shape.position[0]);
             ymaxAll = Math.max(ymaxAll, ymax + shape.position[1]);
             zmaxAll = Math.max(zmaxAll, zmax + shape.position[2]);
-            
+
         }
 
         return {
@@ -359,28 +338,10 @@ void main() {
         };
     }
 
-    /* function initShaderProgram() {
-      try {
-        program = createProgram(gl, vertEditor.value, fragEditor.value);
-        gl.useProgram(program);
-        posLoc = gl.getAttribLocation(program, "aPosition");
-        colorLoc = gl.getAttribLocation(program, "aColor");
-        timeLoc = gl.getUniformLocation(program, "uTime");
-        uMVM = gl.getUniformLocation(program, "uModelViewMatrix");
-        uPM = gl.getUniformLocation(program, "uProjectionMatrix");
-        uMTM = gl.getUniformLocation(program, "uModelTransformationMatrix");
-      } catch (e) { console.error(e); }
-    }
-     */
-
     function initShaderProgram() {
       try {
-            const shaderFunctions =
-      document.getElementById("shader-functions").textContent;
 
-    const vertexSource =
-      vertEditor.value.replace("#version 300 es", "#version 300 es\n" + shaderFunctions);
-        program = createProgram(gl, vertexSource, fragEditor.value);
+        program = createProgram(gl, vertEditor.value, fragEditor.value);
         gl.useProgram(program);
         posLoc = gl.getAttribLocation(program, "aPosition");
         colorLoc = gl.getAttribLocation(program, "aColor");
@@ -399,19 +360,26 @@ void main() {
     let mouseDown = false, lastX, lastY, cubeRotX = 0, cubeRotY = 0;
     let camX = 0, camY = 0, camZ = -6;
 
-    canvas.addEventListener('mousedown', e => { mouseDown = true; lastX = e.clientX; lastY = e.clientY; });
-    canvas.addEventListener('mouseup', () => mouseDown = false);
+    canvas.addEventListener('mousedown', e => {
+        mouseDown = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => {
+        mouseDown = false;
+    });
     canvas.addEventListener('mousemove', e => {
       if (!mouseDown) return;
       let dx = e.clientX - lastX;
       let dy = e.clientY - lastY;
       cubeRotY += dx * 0.01;
       cubeRotX += dy * 0.01;
-      lastX = e.clientX; 
+      lastX = e.clientX;
       lastY = e.clientY;
     });
 
     document.addEventListener('keydown', e => {
+      if (e.target === vertEditor || e.target === fragEditor) return;
       const step = 0.2;
       switch (e.key) {
         case 'ArrowUp': camY -= step; break;
@@ -424,166 +392,134 @@ void main() {
     });
 
     // mouse wheel to zoom in or out
-    document.addEventListener(
+    canvas.addEventListener(
         "wheel",
-        (event) => {
-            event.preventDefault();
+        e => {
+            e.preventDefault();
 
-            camZ += event.deltaY * 0.01;
+            camZ += e.deltaY * 0.01;
             camZ = Math.max(-100, Math.min(-0.1, camZ));      // limits [-0.1, -100]
         },
         { passive: false }    // in case the browser ignores preventDefault()
     );
 
-    document.getElementById("cubeBtn").onclick = () => shapes.push({
-        buffers: cubeObject,
-        geometry: cube,
-        position: [shapes.length*3, 0, 0],
-        rotation: [0, 0, 0],
-    });
-    document.getElementById("sphereBtn").onclick = () => shapes.push({
-            buffers: sphereObject,
-            geometry: sphere,
-            position: [shapes.length*3, 0, 0],
-            rotation: [2, 0, 0]
-    });
-    document.getElementById("torusBtn").onclick = () => shapes.push({
-            buffers: torusObject,
-            geometry: torus,
-            position: [shapes.length*3, 0, 0],
-            rotation: [2, 0, 3]
-    });
-    document.getElementById("spinBtn").onclick = () => 
-        rotationSpeed = 50.0;
+    let addedShapes = 0;
+    function addShape(buffers, geometry, rotation) {
+        let depth = Math.max(8, 4 / Math.tan(fov / 2)) + Math.floor(addedShapes / 9) * 4;   // increase depth after every 9 shapes
+        let position = [
+            -camX + ((addedShapes + 1) % 3 - 1) * 2,                    // alternate: center, right, left
+            -camY + ((Math.floor(addedShapes / 3) + 1) % 3 - 1) * 2,    // alternate: center, up, down
+            -camZ - depth
+        ];
+        shapes.push({
+            buffers, geometry, position, rotation
+        });
+        ++addedShapes;
+    }
+    document.getElementById("cubeBtn").onclick = () =>
+        addShape(cubeObject, cube, [0, 0, 0]);
+    document.getElementById("sphereBtn").onclick = () =>
+        addShape(sphereObject, sphere, [0, 0, 0]);
+    document.getElementById("torusBtn").onclick = () =>
+        addShape(torusObject, torus, [0, 0, 0]);
+    document.getElementById("coneBtn").onclick = () =>
+        addShape(coneObject, cone, [0, 0, 0]);
+    document.getElementById("cylinderBtn").onclick = () =>
+        addShape(cylinderObject, cylinder, [0, 0, 0]);
+    document.getElementById("spinBtn").onclick = () =>
+        rotationSpeed = 0.12;
+    document.getElementById("orbitBtn").onclick = () =>
+        circleSpeed = 0.2;
+    document.getElementById("scaleBtn").onclick = () =>
+        scaleSpeed = 0;
 
-const fovText = document.getElementById("fovText");
-    let fov = Number(fovText.textContent) * Math.PI / 180;
     // Projection setup
-    //let fov = Math.PI / 4, 
-    
+    const slider = document.getElementById("slider");
+    const projText = document.getElementById("projText");
+    let fov = Number(slider.value) * Math.PI / 180;
     let aspect = canvas.width / canvas.height, zNear = 0.1, zFar = 100;
 
-    let orthoSize = 2.5;
+    let orthoSize = Number(slider.value) / 10;
 
     // Perspective and Orthographic projection
     let projPerspective = perspective(fov, aspect, zNear, zFar);
 
-
-    
-    document.getElementById("slider").addEventListener("input", e => {
-        fovText.textContent = e.target.value;
-        fov = e.target.value * Math.PI / 180;
-        proj = perspective(fov, aspect, zNear, zFar);
-    });
-
-
-
     let projOrtho = matMul(
-    box2Cube(-orthoSize * aspect, orthoSize * aspect, -orthoSize, orthoSize, zNear, zFar),
-    flipZ()
-);
-/*     let proj = projOrtho;
-    
-    let startTime = Date.now();
-
-    function render() {
-      gl.enable(gl.DEPTH_TEST);
-      gl.clearColor(0, 0, 0, 1);
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-      // rotation matrices
-      let cx = Math.cos(cubeRotY), sx = Math.sin(cubeRotY);
-      let cy = Math.cos(cubeRotX), sy = Math.sin(cubeRotX);
-      let rotX = [1, 0, 0, 0, 0, cy, sy, 0, 0, -sy, cy, 0, 0, 0, 0, 1];
-      let rotY = [cx, 0, -sx, 0, 0, 1, 0, 0, sx, 0, cx, 0, 0, 0, 0, 1];
-      let cubeRotation = multiplyMat4(rotY, rotX);
-
-      // init model-view matrix as identity matrix
-      let modelViewMatrix = mat4Identity();
-      // init model transformation matrix as identity matrix
-      let modelTransformationMatrix = mat4Identity();
-
-      //delta time in ms
-      let deltaTime = Date.now() - startTime;
-      // object rotation
-      modelTransformationMatrix = multiplyMat4(modelTransformationMatrix, cubeRotation);
-      // camera translation
-      modelViewMatrix = mat4Translate(modelViewMatrix, [camX, camY, camZ]);
-      
-      //set time in seconds
-      gl.uniform1f(timeLoc, deltaTime/1000.0);
-      gl.uniformMatrix4fv(uPM, false, proj);
-      gl.uniformMatrix4fv(uMVM, false, modelViewMatrix);
-      gl.uniformMatrix4fv(uMTM, false, modelTransformationMatrix);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-      gl.enableVertexAttribArray(posLoc);
-      gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER, nbo);
-      gl.enableVertexAttribArray(colorLoc);
-      gl.vertexAttribPointer(colorLoc, 3, gl.FLOAT, false, 0, 0);
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-
-      // draw the object by the index order
-      gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
-    }
- */
+        box2Cube(-orthoSize * aspect, orthoSize * aspect, -orthoSize, orthoSize, zNear, zFar),
+        flipZ()
+    );
     let proj = projPerspective;
-    
+
+    function updateProjection() {
+        if (document.querySelector('input[name="proj"]:checked').value === "persp") {
+            fov = Number(slider.value) * Math.PI / 180;
+            projPerspective = perspective(fov, aspect, zNear, zFar);
+            proj = projPerspective;
+            projText.textContent = "FOV: " + slider.value;
+        } else {
+            orthoSize = Number(slider.value) / 10;
+            projOrtho = matMul(
+                box2Cube(-orthoSize * aspect, orthoSize * aspect,
+                        -orthoSize, orthoSize, zNear, zFar),
+                flipZ()
+            );
+            proj = projOrtho;
+            projText.textContent = "Ortho size: " + orthoSize;
+        }
+    }
+
+    slider.addEventListener("input", updateProjection);
+    document.querySelectorAll('input[name="proj"]').forEach(radio => {
+        radio.addEventListener("change", updateProjection);
+    });
+    updateProjection();
+
     let startTime = Date.now();
     let rotationSpeed = 0.01;
+    let circleAngle = 0;
+    let circleSpeed = 0.01;
+    let circleRadius = 2;
+    let scaleSpeed = 2;
 
-    console.log(getSceneDimensions());
 
     function render() {
-      gl.enable(gl.DEPTH_TEST);
-      gl.clearColor(0, 0, 0, 1);
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.enable(gl.DEPTH_TEST);
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-        rotationSpeed = 0.002;
-        for (shape of shapes) {
-            // rotation matrices
-            /* let cx = Math.cos(shape.rotations[1]), sx = Math.sin(shape.rotations[1]);
-            let cy = Math.cos(shape.rotations[0]), sy = Math.sin(shape.rotations[0]);
-            let rotX = [1, 0, 0, 0, 0, cy, sy, 0, 0, -sy, cy, 0, 0, 0, 0, 1];
-            let rotY = [cx, 0, -sx, 0, 0, 1, 0, 0, sx, 0, cx, 0, 0, 0, 0, 1];
-            let rotation = multiplyMat4(rotY, rotX);
-            */
+        // init model-view matrix as identity matrix
+        let modelViewMatrix = mat4Identity();
 
-            shape.rotation[0] += Math.max(rotationSpeed, 0.01);
-            shape.rotation[1] += Math.max(rotationSpeed, 0.01);
+        //delta time in ms
+        let deltaTime = Date.now() - startTime;
+        circleAngle += circleSpeed;
 
-            // note: switched cx/sx and cy/sz so they are rotations[0] and rotations[1] and used in rotX and rotY
-            // let cx = Math.cos(shape.rotation[0]), sx = Math.sin(shape.rotation[0]);
-            // let cy = Math.cos(shape.rotation[1]), sy = Math.sin(shape.rotation[1]);
-            // let rotX = [1, 0, 0, 0, 0, cx, sx, 0, 0, -sx, cx, 0, 0, 0, 0, 1];
-            // let rotY = [cy, 0, -sy, 0, 0, 1, 0, 0, sy, 0, cy, 0, 0, 0, 0, 1];
-            // let rotation = multiplyMat4(rotY, rotX);
+        // object rotation
+        let modelTransformationMatrix = mat4RotateY(mat4Identity(), cubeRotY);
+        modelTransformationMatrix = mat4RotateX(modelTransformationMatrix, cubeRotX);
 
+        // camera translation
+        modelViewMatrix = mat4Translate(modelViewMatrix, [camX, camY, camZ]);
 
-            // init model-view matrix as identity matrix
-            let modelViewMatrix = mat4Identity();
-            // init model transformation matrix as identity matrix
-            let modelTransformationMatrix = mat4Identity();
+        for (const shape of shapes) {
+            shape.rotation[0] += rotationSpeed;
+            shape.rotation[1] += rotationSpeed;
 
-            //delta time in ms
-            let deltaTime = Date.now() - startTime;
-            // object rotation
-            // modelTransformationMatrix = multiplyMat4(modelTransformationMatrix, rotation);
-            // camera translation
-            modelViewMatrix = mat4Translate(modelViewMatrix, [camX, camY, camZ]);
+            let angle = circleAngle + shape.rotation[2];
+            let position = [
+                shape.position[0] + circleRadius * Math.cos(angle),
+                shape.position[1] + circleRadius * Math.sin(angle),
+                shape.position[2]
+            ];
+            const uPositionLoc = gl.getUniformLocation(program, "uPosition");
+            gl.uniform3fv(uPositionLoc, position);
 
-const uPositionLoc = gl.getUniformLocation(program, "uPosition");
-gl.uniform3fv(uPositionLoc, shape.position);
-const uRotationLoc = gl.getUniformLocation(program, "uRotation");
-gl.uniform3fv(uRotationLoc, shape.rotation);
-    const by = 0.85 + 0.15 * Math.sin(2.0* deltaTime/1000);
-    const uScaleLoc = gl.getUniformLocation(program, "uScale");    
-    gl.uniform3fv(uScaleLoc, new Float32Array([by, by, by]));    
+            const uRotationLoc = gl.getUniformLocation(program, "uRotation");
+            gl.uniform3fv(uRotationLoc, shape.rotation);
 
-
-
+            const scale = 1 + 0.7 * Math.exp(-3 * scaleSpeed) * Math.sin(8 * scaleSpeed);
+            const uScaleLoc = gl.getUniformLocation(program, "uScale");
+            gl.uniform3fv(uScaleLoc, new Float32Array([scale, scale, scale]));
 
             //set time in seconds
             gl.uniform1f(timeLoc, deltaTime/1000.0);
@@ -603,46 +539,10 @@ gl.uniform3fv(uRotationLoc, shape.rotation);
             // draw the object by the index order
             gl.drawElements(gl.TRIANGLES, shape.buffers.indexSize, gl.UNSIGNED_SHORT, 0);
         }
+        rotationSpeed = Math.max(0.01, rotationSpeed * 0.98);
+        circleSpeed = Math.max(0.01, circleSpeed * 0.98);
+        scaleSpeed = Math.min(2, scaleSpeed + 0.03);
     }
-
-    //   // rotation matrices
-    //   let cx = Math.cos(cubeRotY), sx = Math.sin(cubeRotY);
-    //   let cy = Math.cos(cubeRotX), sy = Math.sin(cubeRotX);
-    //   let rotX = [1, 0, 0, 0, 0, cy, sy, 0, 0, -sy, cy, 0, 0, 0, 0, 1];
-    //   let rotY = [cx, 0, -sx, 0, 0, 1, 0, 0, sx, 0, cx, 0, 0, 0, 0, 1];
-    //   let cubeRotation = multiplyMat4(rotY, rotX);
-
-    //   // init model-view matrix as identity matrix
-    //   let modelViewMatrix = mat4Identity();
-    //   // init model transformation matrix as identity matrix
-    //   let modelTransformationMatrix = mat4Identity();
-
-    //   //delta time in ms
-    //   let deltaTime = Date.now() - startTime;
-    //   // object rotation
-    //   modelTransformationMatrix = multiplyMat4(modelTransformationMatrix, cubeRotation);
-    //   // camera translation
-    //   modelViewMatrix = mat4Translate(modelViewMatrix, [camX, camY, camZ]);
-      
-    //   //set time in seconds
-    //   gl.uniform1f(timeLoc, deltaTime/1000.0);
-    //   gl.uniformMatrix4fv(uPM, false, proj);
-    //   gl.uniformMatrix4fv(uMVM, false, modelViewMatrix);
-    //   gl.uniformMatrix4fv(uMTM, false, modelTransformationMatrix);
-
-    //   gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    //   gl.enableVertexAttribArray(posLoc);
-    //   gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
-
-    //   gl.bindBuffer(gl.ARRAY_BUFFER, nbo);
-    //   gl.enableVertexAttribArray(colorLoc);
-    //   gl.vertexAttribPointer(colorLoc, 3, gl.FLOAT, false, 0, 0);
-    //   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-
-    //   // draw the object by the index order
-    //   gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
-    // }
-
 
     // Initialize when page loads
     window.onload = function () {
