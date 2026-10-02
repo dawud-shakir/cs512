@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>UNM CS 412/512 HW3</title>
+  <style>
+    body {
+      background: #111;
+      color: #ccc;
+      font-family: monospace;
+    }
+
+    textarea {
+      background: #222; 
+      color: #0f0;
+      font: 14px monospace;
+      width: 400px;
+      height: 250px;
+    }
+
+    canvas {
+      border: 1px solid #444;
+    }
+    .actionBtn {
+        background: #ff9f1c;
+        color: #111;
+        border: 2px solid #ffbf69;
+        border-radius: 6px;
+        padding: 6px 14px;
+        font: bold 14px monospace;
+        cursor: pointer;
+    }
+
+    .actionBtn:hover {
+        background: #ffbf69;
+    }
+
+    .actionBtn:active {
+        transform: scale(0.95);
+    }
+
+    .action-row {
+        padding-bottom: 12px;
+        margin-bottom: 12px;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Interactive Controls & Geometric Primitives</h2>
+  <p>
+    Edit vertex and fragment shaders on the left to get the result instantly.<br>
+    Use mouse to drag and rotate the objects. <br>
+    Use arrow keys to move the camera and w/s keys or the mouse wheel to zoom in and out.<br>
+    Save your code to source file if you want to save it.<br>
+    Press F12 to see the console for debugging.
+</p>
+
+  <div style="display: flex; gap: 10px; align-items: flex-start;">
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div>
+        <b>Vertex Shader</b><br>
+        <textarea id="vertEditor"></textarea>
+      </div>
+      <div>
+        <b>Fragment Shader</b><br>
+        <textarea id="fragEditor"></textarea>
+      </div>
+    </div>
+    <div>
+      <canvas id="glcanvas" width="400" height="400"></canvas>
+      <div class="action-row">
+        <button class="actionBtn" id="spinBtn">Spin</button>
+        <button class="actionBtn" id="scaleBtn">Bump</button>
+        <button class="actionBtn" id="orbitBtn">Marmalade!</button>
+      </div>
+      <div>
+        <button id="cubeBtn">Cube</button>
+        <button id="sphereBtn">Sphere</button>
+        <button id="torusBtn">Torus</button>
+        <button id="coneBtn">Cone</button>
+        <button id="cylinderBtn">Cylinder</button>
+      </div>
+      <div>
+
+        <input type="range" min="10" max="120" value="sss" id="slider">
+        <span id="projText">FOV: 45</span>
+      </div>
+      <div>
+        <label><input type="radio" name="proj" value="persp" checked>Persp</label>
+        <label><input type="radio" name="proj" value="ortho">Ortho</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vertex shader -->
+  <script id="vertex-shader" type="x-shader/x-vertex">#version 300 es
+    in vec3 aPosition;
+    
+    in vec3 aColor;
+
+    uniform float uTime; //time in sec
+    uniform mat4 uObjectToClip;
+
+    out vec3 vColor;
+
+    void main() {
+        gl_Position = uObjectToClip * vec4(aPosition, 1.0);
+        vColor = aColor;
+    }
+    </script>
+  <!-- Fragment Shader -->
+  <script id="fragment-shader" type="x-shader/x-fragment">#version 300 es
+    precision mediump float;
+    in vec3 vColor;
+
+    out vec4 fragColor;
+
+    void main() {
+        fragColor = vec4(vColor,1.0);
+    }
+  </script>
+
+  <script src="primitives.js"></script>
+  <script src="transformations.js"></script>
+
+  <script>
+    function createShader(gl, type, source) {
+      let shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        throw new Error(gl.getShaderInfoLog(shader));
+      }
+      return shader;
+    }
+
+    function createProgram(gl, vsSource, fsSource) {
+      let vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
+      let fs = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+      let prog = gl.createProgram();
+      gl.attachShader(prog, vs);
+      gl.attachShader(prog, fs);
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(prog));
+      }
+      return prog;
+    }
+
+    // WebGL setup
+    const canvas = document.getElementById("glcanvas");
+    const gl = canvas.getContext("webgl2");
+    if (!gl) alert("WebGL2 not supported");
+
+    let vertEditor = document.getElementById("vertEditor");
+    let fragEditor = document.getElementById("fragEditor");
+    vertEditor.value = document.getElementById("vertex-shader").textContent;
+    fragEditor.value = document.getElementById("fragment-shader").textContent;
+
+    let program, posLoc, colorLoc, timeLoc, uOTC;
+    
+    // // Buffers
+    function createObject(object) {
+      let vbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, object.positions, gl.STATIC_DRAW);
+
+      let nbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, nbo);
+      gl.bufferData(gl.ARRAY_BUFFER, object.colors, gl.STATIC_DRAW);
+
+      let ibo = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, object.indices, gl.STATIC_DRAW);
+
+      return {
+        positionBuffer: vbo,
+        colorBuffer: nbo,
+        indexBuffer: ibo,
+        indexSize: object.indices.length,
+        position: [0, 0, 0],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+      };
+    }
+
+    function createSolidColorGeometry(geometry, color) {
+      const colors = new Float32Array(geometry.positions.length);
+      for (let i = 0; i < colors.length; i += 3) {
+        colors[i] = color[0];
+        colors[i + 1] = color[1];
+        colors[i + 2] = color[2];
+      }
+
+      return {
+        positions: geometry.positions,
+        colors,
+        indices: geometry.indices
+      };
+    }
+
+    // Load each shape onto GPU once
+    const cubeObject = createObject(
+        createSolidColorGeometry(cube, [0, 0, 1]));
+    const sphereObject = createObject(sphere);
+    const torusObject = createObject(torus);
+    const coneObject = createObject(cone);
+    const cylinderObject = createObject(cylinder);
+    const whiteSphereObject = createObject(
+        createSolidColorGeometry(sphere, [1, 1, 1])
+    );
+    const blackSphereObject = createObject(
+        createSolidColorGeometry(sphere, [0.01, 0.01, 0.015])
+    );
+
+
+function createNode({
+    mesh = null,
+    position = [0, 0, 0],
+    rotation = [0, 0, 0],
+    scale = [1, 1, 1],
+    children = []
+} = {}) {
+    return {
+        mesh,
+        position,
+        rotation,
+        scale,
+        children
+    };
+}
+
+// Build a chain from transform-only joint nodes. Each joint has two children:
+// the visible block and, except at the end, the next joint in the chain.
+// Keeping scale on the visible block prevents it from changing the spacing of
+// every descendant.
+const chainJoints = [];
+const googlyPupils = [];
+
+function createGooglyEye(position) {
+    const eyeAnchor = createNode({position});
+    const white = createNode({
+        mesh: whiteSphereObject,
+        scale: [0.24, 0.24, 0.12]
+    });
+    const pupil = createNode({
+        mesh: blackSphereObject,
+        position: [0, 0, 0.15],
+        scale: [0.11, 0.11, 0.06]
+    });
+
+    eyeAnchor.children.push(white, pupil);
+    googlyPupils.push(pupil);
+    return eyeAnchor;
+}
+
+function createBlockChain(blockCount, blockLength = 1.5, thickness = 0.35) {
+    chainJoints.length = 0;
+    googlyPupils.length = 0;
+
+    const trunkBlockCount = Math.max(1, Math.floor(blockCount / 2));
+    const branchBlockCount = Math.max(1, blockCount - trunkBlockCount);
+    const chainRoot = createNode({
+        position: [-blockCount * blockLength / 2, 0, 0]
+    });
+    chainJoints.push({node: chainRoot, restZ: 0, depth: 0, branchPhase: 0});
+    let joint = chainRoot;
+
+    function addBlock(parentJoint) {
+        const block = createNode({
+            mesh: cubeObject,
+            position: [blockLength / 2, 0, 0],
+            scale: [blockLength / 2 - 0.05, thickness, thickness]
+        });
+        parentJoint.children.push(block);
+    }
+
+    // Shared parent trunk: the first half of the requested path length.
+    for (let i = 0; i < trunkBlockCount; ++i) {
+        addBlock(joint);
+
+        const nextJoint = createNode({position: [blockLength, 0, 0]});
+        joint.children.push(nextJoint);
+        joint = nextJoint;
+
+        if (i < trunkBlockCount - 1) {
+            const restZ = i % 2 === 0 ? 0.16 : -0.10;
+            joint.rotation[2] = restZ;
+            chainJoints.push({
+                node: joint,
+                restZ,
+                depth: i + 1,
+                branchPhase: 0
+            });
+        }
+    }
+
+    const splitJoint = joint;
+    chainJoints.push({
+        node: splitJoint,
+        restZ: 0,
+        depth: trunkBlockCount,
+        branchPhase: 0
+    });
+
+    function addHead(parentJoint) {
+        parentJoint.children.push(
+            createGooglyEye([-0.25, 0.10, thickness + 0.10]),
+            createGooglyEye([0.25, 0.10, thickness + 0.10])
+        );
+    }
+
+    function addBranch(direction) {
+        const branchAngle = direction * 0.48;
+        const branchRoot = createNode({rotation: [0, 0, branchAngle]});
+        splitJoint.children.push(branchRoot);
+        chainJoints.push({
+            node: branchRoot,
+            restZ: branchAngle,
+            depth: trunkBlockCount,
+            branchPhase: direction * 0.65
+        });
+
+        let branchJoint = branchRoot;
+        for (let i = 0; i < branchBlockCount; ++i) {
+            addBlock(branchJoint);
+
+            const nextJoint = createNode({position: [blockLength, 0, 0]});
+            branchJoint.children.push(nextJoint);
+
+            if (i < branchBlockCount - 1) {
+                const restZ = direction * (i % 2 === 0 ? 0.10 : -0.06);
+                nextJoint.rotation[2] = restZ;
+                chainJoints.push({
+                    node: nextJoint,
+                    restZ,
+                    depth: trunkBlockCount + i + 1,
+                    branchPhase: direction * 0.65
+                });
+            } else {
+                // Each child branch terminates in its own googly-eyed head.
+                addHead(nextJoint);
+            }
+
+            branchJoint = nextJoint;
+        }
+    }
+
+    addBranch(1);
+    addBranch(-1);
+
+    return chainRoot;
+}
+
+// A phase delay makes the motion travel from the parent joint through each
+// child. Since drawNode accumulates matrices, every joint also carries all of
+// its descendants with it.
+function animateBlockChain(elapsedSeconds) {
+    for (let i = 0; i < chainJoints.length; ++i) {
+        const {node, restZ, depth, branchPhase} = chainJoints[i];
+        const phase = elapsedSeconds * rotationSpeed
+            - depth * 0.55
+            + branchPhase;
+        const amplitude = 0.28 - depth * 0.018;
+
+        node.rotation[2] = restZ + amplitude * Math.sin(phase);
+        node.rotation[1] = 0.08 * Math.sin(phase * 0.7);
+    }
+
+    // Move each pupil independently while keeping it inside its white sphere.
+    for (let i = 0; i < googlyPupils.length; ++i) {
+        const pupil = googlyPupils[i];
+        pupil.position[0] = 0.055 * Math.sin(elapsedSeconds * 2.7 + i * 1.9);
+        pupil.position[1] = 0.055 * Math.cos(elapsedSeconds * 2.1 + i * 2.3);
+    }
+}
+
+const sceneRoot = createNode({
+    children: [createBlockChain(6)]
+});
+
+function getLocalToParent(node) {
+    let matrix = mat4Identity();
+
+    matrix = mat4Translate(matrix, node.position);
+    matrix = mat4RotateZ(matrix, node.rotation[2]);
+    matrix = mat4RotateY(matrix, node.rotation[1]);
+    matrix = mat4RotateX(matrix, node.rotation[0]);
+    matrix = mat4Scale(matrix, node.scale);
+
+    return matrix;
+}
+// added
+function drawSceneDFS(root, sceneToWorld, worldToClip) {
+    const stack = [{
+        node: root,
+        parentToWorld: sceneToWorld
+
+    }];
+
+    while (stack.length > 0) {
+        const {node, parentToWorld} = stack.pop();
+
+        const localToParent = getLocalToParent(node);
+
+        const objectToWorld = matMul(parentToWorld, localToParent);
+
+        if (node.mesh) {
+            // Model -> View -> Projection
+            const objectToClip = matMul(worldToClip, objectToWorld);
+            gl.uniformMatrix4fv(uOTC, false, objectToClip);
+            drawMesh(node.mesh);
+        }
+
+        for (let i = node.children.length - 1; i >= 0; --i) {
+            stack.push({
+                node: node.children[i],
+                parentToWorld: objectToWorld
+            });
+        }
+    } 
+}
+
+function drawNode(node, parentToWorld, worldToClip) {
+    const localToParent = getLocalToParent(node);
+
+    // MODEL: Object/Local -> Parent -> World.
+    // localToParent is applied first; parentToWorld carries the result through
+    // every ancestor in the hierarchy and into world space.
+    const objectToWorld = matMul(parentToWorld, localToParent);
+
+    if (node.mesh) {
+        // MVP: Object -> World (Model) -> Camera (View) -> Clip (Projection).
+        // worldToClip already contains View followed by Projection.
+        const objectToClip = matMul(worldToClip, objectToWorld);
+
+        // uObjectToClip is the complete Projection * View * Model transform.
+        gl.uniformMatrix4fv(uOTC, false, objectToClip);
+        drawMesh(node.mesh);
+    }
+
+    for (const child of node.children) {
+        drawNode(child, objectToWorld, worldToClip);
+    }
+}
+
+function drawMesh(mesh) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.positionBuffer);
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.colorBuffer);
+    gl.enableVertexAttribArray(colorLoc);
+    gl.vertexAttribPointer(colorLoc, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indexBuffer);
+    gl.drawElements(
+        gl.TRIANGLES,
+        mesh.indexSize,
+        gl.UNSIGNED_SHORT,
+        0
+    );
+}
+
+    function minmax(arr) {
+        let min = +Infinity;
+        let max = -Infinity;
+        for (const a of arr) {
+            min = Math.min(a, min);
+            max = Math.max(a, max);
+        }
+        return {
+            min, max
+        };
+    }
+    function getSceneDimensions() {
+        let xminAll = +Infinity, yminAll = +Infinity, zminAll = +Infinity;
+        let xmaxAll = -Infinity, ymaxAll = -Infinity, zmaxAll = -Infinity;
+        for (const shape of shapes) {
+            const xs = shape.geometry.positions.filter((_, index) => index % 3 === 0);
+            const ys = shape.geometry.positions.filter((_, index) => index % 3 === 1);
+            const zs = shape.geometry.positions.filter((_, index) => index % 3 === 2);
+            const {min: xmin, max: xmax} = minmax(xs);
+            const {min: ymin, max: ymax} = minmax(ys);
+            const {min: zmin, max: zmax} = minmax(zs);
+
+            xminAll = Math.min(xminAll, xmin + shape.position[0]);
+            yminAll = Math.min(yminAll, ymin + shape.position[1]);
+            zminAll = Math.min(zminAll, zmin + shape.position[2]);
+
+            xmaxAll = Math.max(xmaxAll, xmax + shape.position[0]);
+            ymaxAll = Math.max(ymaxAll, ymax + shape.position[1]);
+            zmaxAll = Math.max(zmaxAll, zmax + shape.position[2]);
+
+        }
+
+        return {
+            xminAll, yminAll, zminAll,
+            xmaxAll, ymaxAll, zmaxAll
+        };
+    }
+
+    function initShaderProgram() {
+      try {
+
+        program = createProgram(gl, vertEditor.value, fragEditor.value);
+        gl.useProgram(program);
+        posLoc = gl.getAttribLocation(program, "aPosition");
+                posLoc2 = gl.getAttribLocation(program, "aPosition2");
+
+        colorLoc = gl.getAttribLocation(program, "aColor");
+        timeLoc = gl.getUniformLocation(program, "uTime");
+        uOTC = gl.getUniformLocation(program, "uObjectToClip");
+      } catch (e) { console.error(e); }
+    }
+
+    initShaderProgram();
+    vertEditor.onkeyup = initShaderProgram;
+    fragEditor.onkeyup = initShaderProgram;
+
+    // Mouse and keyboard interactions
+    let mouseDown = false, lastX, lastY, cubeRotX = 0, cubeRotY = 0;
+    let camX = 0, camY = 0, camZ = -10;
+
+    canvas.addEventListener('mousedown', e => {
+        mouseDown = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => {
+        mouseDown = false;
+    });
+    canvas.addEventListener('mousemove', e => {
+      if (!mouseDown) return;
+      let dx = e.clientX - lastX;
+      let dy = e.clientY - lastY;
+      cubeRotY += dx * 0.01;
+      cubeRotX += dy * 0.01;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    });
+
+    document.addEventListener('keydown', e => {
+      if (e.target === vertEditor || e.target === fragEditor) return;
+      const step = 0.2;
+      switch (e.key) {
+        case 'ArrowUp': camY -= step; break;
+        case 'ArrowDown': camY += step; break;
+        case 'ArrowLeft': camX += step; break;
+        case 'ArrowRight': camX -= step; break;
+        case 'w': camZ += step; break;
+        case 's': camZ -= step; break;
+      }
+    });
+
+    // mouse wheel to zoom in or out
+    canvas.addEventListener(
+        "wheel",
+        e => {
+            e.preventDefault();
+
+            camZ += e.deltaY * 0.01;
+            camZ = Math.max(-100, Math.min(-0.1, camZ));      // limits [-0.1, -100]
+        },
+        { passive: false }    // in case the browser ignores preventDefault()
+    );
+
+    document.getElementById("cubeBtn").onclick = () =>
+        addShape(cubeObject, cube, [0, 0, 0]);
+    document.getElementById("sphereBtn").onclick = () =>
+        addShape(sphereObject, sphere, [0, 0, 0]);
+    document.getElementById("torusBtn").onclick = () =>
+        addShape(torusObject, torus, [0, 0, 0]);
+    document.getElementById("coneBtn").onclick = () =>
+        addShape(coneObject, cone, [0, 0, 0]);
+    document.getElementById("cylinderBtn").onclick = () =>
+        addShape(cylinderObject, cylinder, [0, 0, 0]);
+    document.getElementById("spinBtn").onclick = () =>
+        rotationSpeed = 2.4;
+    document.getElementById("orbitBtn").onclick = () =>
+        circleSpeed = 0.2;
+    document.getElementById("scaleBtn").onclick = () =>
+        scaleSpeed = 0;
+
+    // Projection setup
+    const slider = document.getElementById("slider");
+    const projText = document.getElementById("projText");
+    let fov = Number(slider.value) * Math.PI / 180;
+    let aspect = canvas.width / canvas.height, zNear = 0.1, zFar = 100;
+
+    let orthoSize = Number(slider.value) / 10;
+
+    // Perspective and Orthographic projection
+    let projPerspective = perspective(fov, aspect, zNear, zFar);
+
+    // PROJECTION: Camera/View -> flipped camera convention -> Clip.
+    let projOrtho = matMul(
+        box2Cube(-orthoSize * aspect, orthoSize * aspect,
+                 -orthoSize, orthoSize, zNear, zFar), // View box -> Clip cube
+        flipZ()                                      // Camera -Z -> projection +Z
+    );
+    let cameraToClip = projPerspective;
+
+
+    function updateProjection() {
+        if (document.querySelector('input[name="proj"]:checked').value === "persp") {
+            fov = Number(slider.value) * Math.PI / 180;
+            projPerspective = perspective(fov, aspect, zNear, zFar);
+            cameraToClip = projPerspective;
+            projText.textContent = "FOV: " + slider.value;
+        } else {
+            orthoSize = Number(slider.value) / 10;
+            // PROJECTION: Camera/View -> flipped camera convention -> Clip.
+            projOrtho = matMul(
+                box2Cube(-orthoSize * aspect, orthoSize * aspect,
+                         -orthoSize, orthoSize, zNear, zFar), // View box -> Clip
+                flipZ()                                      // Camera -Z -> +Z
+            );
+            cameraToClip = projOrtho;
+            projText.textContent = "Ortho size: " + orthoSize;
+        }
+
+    }
+
+    slider.addEventListener("input", updateProjection);
+    document.querySelectorAll('input[name="proj"]').forEach(radio => {
+        radio.addEventListener("change", updateProjection);
+    });
+    updateProjection();
+
+    let startTime = Date.now();
+    let rotationSpeed = 1.4;
+
+ 
+function render() {
+    gl.enable(gl.DEPTH_TEST);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const elapsedSeconds = (Date.now() - startTime) / 1000;
+    animateBlockChain(elapsedSeconds);
+
+    const worldToCamera = mat4Translate(
+        mat4Identity(),
+        [camX, camY, camZ]
+    );
+
+    // VIEW + PROJECTION: World -> Camera/View -> Clip.
+    // Applied right-to-left: worldToCamera (View), then cameraToClip
+    // (Projection). In conventional notation this is P * V.
+    const worldToClip = matMul(cameraToClip, worldToCamera);
+
+    let sceneToWorld = mat4RotateY(mat4Identity(), cubeRotY);
+    sceneToWorld = mat4RotateX(sceneToWorld, cubeRotX);
+
+    drawSceneDFS(sceneRoot, sceneToWorld, worldToClip);
+    //drawNode(sceneRoot, sceneToWorld, worldToClip); // worldToClip: P*V
+}
+
+ 
+    // Initialize when page loads
+    window.onload = function () {
+      setInterval(render, 30);
+    }
+
+  </script>
+</body>
+
+</html>
