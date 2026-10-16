@@ -11,7 +11,7 @@ out vec3 vNormal;
 void main() {
   vec4 p = uModelView * vec4(aPosition, 1.0);
   vPosition = p.xyz;
-  vNormal = mat3(uModelView) * aNormal;
+  vNormal = transpose(inverse(mat3(uModelView))) * aNormal;
   gl_Position = uProjection * p;
 }
 `;
@@ -33,7 +33,11 @@ void main() {
   vec3 Ks = vec3(0.5);
   float shininess = 32.0;
 
-  vec3 N = normalize(vNormal);
+  /* 
+   * Normalize here because the rasterizer's interpolation can change the normal’s length
+   */
+  vec3 N = normalize(vNormal);              
+
   vec3 L = normalize(uLightPos - vPosition);
   vec3 V = normalize(-vPosition);           // camera sits at the origin
   vec3 R = reflect(-L, N);
