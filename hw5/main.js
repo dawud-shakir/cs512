@@ -45,7 +45,9 @@ void main() {
   float diff = max(dot(N, L), 0.0);
   float spec = pow(max(dot(V, R), 0.0), shininess);
 
-  fragColor = vec4(Ka + Kd * diff + Ks * spec, 1.0);
+  float d = length(uLightPos - vPosition);
+  float f_att = 1.0/(1.0 + 0.09*d + 0.032*d*d);     // smooth natural fade
+  fragColor = vec4(Ka + f_att*(Kd * diff + Ks * spec), 1.0);
 }
 `;
 
@@ -121,11 +123,13 @@ function createMesh({ positions, normals, indices }) {
 
 const cubeMesh = createMesh(createCube());
 const cylinderMesh = createMesh(createCylinder(32));
+const gearMesh = createMesh(createGear(12 * 16));
 
 gl.enable(gl.DEPTH_TEST);
 gl.clearColor(0, 0, 0, 1);
 const projection = perspective(Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
-const lightWorld = [3, 4, 5];
+// const lightWorld = [3, 4, 5];
+const lightWorld = [0, 1, 0];
 
 // nteractive controls
 let dragRotX = 0, dragRotY = -0.5;      // mouse drag
@@ -142,6 +146,13 @@ window.addEventListener("mousemove", e => {
   dragRotX += (e.clientY - lastY) * 0.01;
   lastX = e.clientX; lastY = e.clientY;
 });
+canvas.addEventListener("wheel", e => {
+   e.preventDefault(); // do not scroll the page instead
+   camZ += e.deltaY * 0.01;
+   camZ = Math.max(-100, Math.min(-0.1, camZ)); // Keep the camera translation between -100 and -0.1.
+   },
+   { passive: false } 
+);
 
 document.addEventListener("keydown", e => {
   if (e.target === vertEditor || e.target === fragEditor) return;  // let the editors use the keys
@@ -169,7 +180,7 @@ document.getElementById("spinButton").addEventListener("click", () => spinning =
 function createNode(mesh, color, shape) {
   return { mesh, color, shape, joint: null, children: [] };
 }
-
+/*
 // Lower arm: scale the cylinder then move it up by 0.6 so its bottom sits at the joint
 const lowerArm = createNode(cylinderMesh, [1, 0.2, 0.2],
   multiply(translate(0, 0.6, 0), scale(0.3, 0.6, 0.3)));
@@ -177,8 +188,20 @@ const lowerArm = createNode(cylinderMesh, [1, 0.2, 0.2],
 // Upper arm: scale the cube then move it up by 0.5 so its bottom sits at the joint
 const upperArm = createNode(cubeMesh, [0.2, 0.4, 1],
   multiply(translate(0, 0.5, 0), scale(0.2, 0.5, 0.2)));
+*/
 
+const lowerArm = createNode(gearMesh, [1, 0.2, 0.2],
+  multiply(translate(0, 0.6, 0), scale(0.3, 0.6, 0.3)));
+
+// Upper arm: scale the cube then move it up by 0.5 so its bottom sits at the joint
+const upperArm = createNode(cubeMesh, [0.2, 0.4, 1],
+  multiply(translate(0, 0.5, 0), scale(0.2, 0.5, 0.2)));
+
+// Upper arm: scale the cube then move it up by 0.5 so its bottom sits at the joint
+const gear2 = createNode(gearMesh, [1, 0.2, 0.2],
+  multiply(translate(0, 1.5, 0), rotateX(Math.PI/2), scale(0.3, 0.6, 0.3)));
 lowerArm.children.push(upperArm);
+upperArm.children.push(gear2);
 
 function drawNode(node, frame) {
   gl.uniformMatrix4fv(uModelView, false, multiply(frame, node.shape));
@@ -213,13 +236,20 @@ function render(time) {
 
   // Whole-model rotation
   const axisRotation = ROTATE[axisSelect.value](sliderAngle * Math.PI / 180 + spinAngle);
-  const rotation = multiply(multiply(rotateY(dragRotY), rotateX(dragRotX)), axisRotation);
+  const rotation = multiply(rotateY(dragRotY), rotateX(dragRotX), axisRotation); 
 
   // Lower arm (root)
-  lowerArm.joint = multiply(multiply(translate(0, -2, 0), rotation), rotateZ(0.5 * Math.sin(t)));
+  lowerArm.joint =  identity();
+  
+//   multiply(translate(0, -2, 0), rotation, rotateZ(0)); // rotateZ(0.5 * Math.sin(t))
 
   // Upper arm (child)
-  upperArm.joint = multiply(translate(0, 1.2, 0), rotateZ(Math.sin(1.5 * t)));
+  upperArm.joint = identity();
+  
+//   multiply(translate(0, 1.2, 0), rotateZ(0)); // rotateZ(Math.sin(1.5 * t))
+
+  M = gear2.shape; 
+  gear2.joint = multiply(identity(), rotation); //identity();
 
   drawTree(lowerArm, view);
   requestAnimationFrame(render);

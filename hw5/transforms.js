@@ -1,3 +1,4 @@
+/*
 function multiply(a, b) {
   const r = new Float32Array(16);
   for (let i = 0; i < 4; i++)
@@ -7,6 +8,33 @@ function multiply(a, b) {
       r[j * 4 + i] = sum;
     }
   return r;
+}
+*/
+
+// ((A x B) x C) x D ...
+function multiply(...matrices) {
+  let result = new Float32Array([
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  ]);
+
+  for (const matrix of matrices) {
+    const next = new Float32Array(16);
+
+    for (let i = 0; i < 4; i++)
+      for (let j = 0; j < 4; j++) {
+        let sum = 0;
+        for (let k = 0; k < 4; k++)
+          sum += result[k * 4 + i] * matrix[j * 4 + k];
+        next[j * 4 + i] = sum;
+      }
+
+    result = next;
+  }
+
+  return result;
 }
 
 function translate(x, y, z) {
@@ -30,6 +58,15 @@ function rotateY(a) {
 function rotateZ(a) {
   const c = Math.cos(a), s = Math.sin(a);
   return new Float32Array([c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+}
+
+function identity() {
+  return new Float32Array([
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1
+  ]);
 }
 
 function perspective(fov, aspect, near, far) {
