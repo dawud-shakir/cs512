@@ -22,32 +22,55 @@ precision mediump float;
 in vec3 vPosition;
 in vec3 vNormal;
 
-uniform vec3 uLightPos;   // eye space
+const int NUM_LIGHTS = 3;
+uniform vec3 uLightPos[NUM_LIGHTS];   // eye space
+
+uniform float uKa;
+uniform float uKd;
+uniform float uKs;
+uniform float uAlpha;
+
 uniform vec3 uColor;
 
 out vec4 fragColor;
 
+vec3 calculateLight(vec3 lightPos, vec3 normal, vec3 viewDir) {
+    // Diffuse
+    vec3 lightDir = normalize(lightPos - vPosition);    // points towards light
+    float cosTheta = max(dot(normal, lightDir), 0.0);   // how aligned is the surface normal and l
+    vec3 diffuse = uKd * cosTheta * uColor; 
+
+    // Specular
+    vec3 reflectDir = -reflect(lightDir, normal);
+    float spec = pow(max(dot(viewDir, reflectDir), 0.0), uAlpha);
+    vec3 specular = uKs * spec * vec3(1.0);
+
+    float d = length(lightPos - vPosition);
+    float f_att = 1.0/(1.0 + 0.09*d + 0.032*d*d);     // smooth natural fade
+
+    return f_att * (diffuse + specular);
+}
+
 void main() {
-  vec3 Ka = 0.2 * uColor;
-  vec3 Kd = 0.8 * uColor;
-  vec3 Ks = vec3(0.5);
-  float shininess = 32.0;
 
-  /* 
+  /********************************************
    * Normalize here because the rasterizer's interpolation can change the normal’s length
-   */
-  vec3 N = normalize(vNormal);              
+   ********************************************/
+  vec3 N = normalize(vNormal); 
 
-  vec3 L = normalize(uLightPos - vPosition);
+  // Ambient (only computed once, not per light)
+  vec3 ambient = uKa * uColor;
+
   vec3 V = normalize(-vPosition);           // camera sits at the origin
-  vec3 R = reflect(-L, N);
+  //vec3 viewDir = normalize(uViewPos - vPosition);
+  vec3 viewDir = normalize(V - vPosition);
 
-  float diff = max(dot(N, L), 0.0);
-  float spec = pow(max(dot(V, R), 0.0), shininess);
+  vec3 result = ambient;
+  for (int i = 0; i < NUM_LIGHTS; ++i) {
+    result += calculateLight(uLightPos[i], N, viewDir);
+  }
 
-  float d = length(uLightPos - vPosition);
-  float f_att = 1.0/(1.0 + 0.09*d + 0.032*d*d);     // smooth natural fade
-  fragColor = vec4(Ka + f_att*(Kd * diff + Ks * spec), 1.0);
+  fragColor = vec4(result, 1.0);
 }
 `;
 
@@ -85,6 +108,8 @@ fragEditor.value = FRAGMENT_SHADER;
 
 let program, uModelView, uProjection, uLightPos, uColor;
 
+let uKa, uKd, uKs, uAlpha; 
+
 function updateProgram() {
   try {
     const prog = createProgram(vertEditor.value, fragEditor.value);
@@ -93,8 +118,14 @@ function updateProgram() {
     gl.useProgram(program);
     uModelView = gl.getUniformLocation(program, "uModelView");
     uProjection = gl.getUniformLocation(program, "uProjection");
-    uLightPos = gl.getUniformLocation(program, "uLightPos");
+    uLightPos = gl.getUniformLocation(program, "uLightPos[0]");
     uColor = gl.getUniformLocation(program, "uColor");
+
+    uKa = gl.getUniformLocation(program, "uKa");
+    uKd = gl.getUniformLocation(program, "uKd");
+    uKs = gl.getUniformLocation(program, "uKs");
+    uAlpha = gl.getUniformLocation(program, "uAlpha");
+
     shaderError.textContent = "";
   } catch (e) {
     shaderError.textContent = e.message.replace(/\0/g, "");  // some drivers end the log with \0
@@ -128,10 +159,22 @@ const gearMesh = createMesh(createGear(12 * 16));
 gl.enable(gl.DEPTH_TEST);
 gl.clearColor(0, 0, 0, 1);
 const projection = perspective(Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
-// const lightWorld = [3, 4, 5];
-const lightWorld = [0, 1, 0];
 
-// nteractive controls
+
+// const lightWorld = [3, 4, 5];
+// const lightWorld = [0, 1, 0];
+const light_dist = 3.0;
+const lightsWorld = [
+  [light_dist, 0, 0],
+  [0, light_dist, 0],
+  [0, 0, light_dist],
+];
+
+const lightsTerms = {
+  Ka: 0.2, Kd: 0.8, Ks: 0.5, Alpha: 32.0
+};
+
+// Interactive controls
 let dragRotX = 0, dragRotY = -0.5;      // mouse drag
 let camX = 0, camY = 0, camZ = -7;      // arrow keys, w, s
 let sliderAngle = 0;                    // degrees
@@ -177,9 +220,10 @@ document.getElementById("slider").addEventListener("input", e => {
 document.getElementById("spinButton").addEventListener("click", () => spinning = !spinning);
 
 
-function createNode(mesh, color, shape) {
-  return { mesh, color, shape, joint: null, children: [] };
+function createNode(mesh=null, color=null, shape=null, joint=identity()) {
+  return { mesh, color, shape, joint, children: [] };
 }
+
 /*
 // Lower arm: scale the cylinder then move it up by 0.6 so its bottom sits at the joint
 const lowerArm = createNode(cylinderMesh, [1, 0.2, 0.2],
@@ -190,18 +234,89 @@ const upperArm = createNode(cubeMesh, [0.2, 0.4, 1],
   multiply(translate(0, 0.5, 0), scale(0.2, 0.5, 0.2)));
 */
 
-const lowerArm = createNode(gearMesh, [1, 0.2, 0.2],
-  multiply(translate(0, 0.6, 0), scale(0.3, 0.6, 0.3)));
 
-// Upper arm: scale the cube then move it up by 0.5 so its bottom sits at the joint
-const upperArm = createNode(cubeMesh, [0.2, 0.4, 1],
-  multiply(translate(0, 0.5, 0), scale(0.2, 0.5, 0.2)));
+const gear1 = createNode(gearMesh, [1, 0.2, 0.2],
+  multiply(translate(0, 1.5, 0), rotateX(Math.PI/2), scale(0.3, 0.6, 0.3)),
+multiply(translate(0, 1.5, 0), rotateX(Math.PI/2)));
+const link1 = createNode(cubeMesh, [0.5, 0.4, 1],
+  multiply(translate(0, 1.0, 0), scale(0.2, 0.5, 0.2)));
 
-// Upper arm: scale the cube then move it up by 0.5 so its bottom sits at the joint
-const gear2 = createNode(gearMesh, [1, 0.2, 0.2],
-  multiply(translate(0, 1.5, 0), rotateX(Math.PI/2), scale(0.3, 0.6, 0.3)));
-lowerArm.children.push(upperArm);
-upperArm.children.push(gear2);
+// const scene = {
+//   name: "scene",
+//   children: [
+//     {
+//       name: "floor",
+//       mesh: cubeMesh,
+//       color: [0, 0, 0.5],
+//       shape: multiply(translate(0, -2.5, 0), scale(3, 0.6, 3))
+//     },
+//     {
+//       name: "gearPivot0",
+//       shape: translate(0, 0.6, 0),
+//       children: [
+//         {
+//           name: "gear0",
+//           mesh: gearMesh,
+//           color: [1, 0.2, 0.2],
+//           shape: multiply(translate(0, 0, 0), scale(0.3, 0.6, 0.3)),
+//         },
+//         {
+
+//         }
+//       ]
+//     }
+//   ]
+
+// };
+
+const scene = {
+  name: "scene",
+  children: [
+    {
+      name: "floor",
+      mesh: cubeMesh,
+      color: [0, 0, 0.5],
+      shape: multiply(translate(0, -2.5, 0), scale(3, 0.6, 3))
+    },
+    {
+      name: "gearPivot0",
+      joint: translate(0, 0.6, 0),
+      children: [
+        {
+          name: "gear0",
+          mesh: gearMesh,
+          color: [1, 0.2, 0.2],
+          shape: scale(0.3, 0.6, 0.3)
+        },
+        {
+          name: "link0",
+          mesh: cubeMesh,
+          color: [0.2, 0.4, 1],
+          shape: multiply(translate(0, 1.0, 0), scale(0.2, 0.5, 0.2))
+        },
+        {
+          name: "gearPivot1",
+          joint: multiply(translate(0, 1.5, 0), rotateX(Math.PI / 2)),
+          children: [
+            {
+              name: "gear1",
+              mesh: gearMesh,
+              color: [1, 0.2, 0.2],
+              shape: scale(0.3, 0.6, 0.3)
+            },
+            {
+              name: "link1",
+              mesh: cubeMesh,
+              color: [0.5, 0.4, 1],
+              shape: multiply(translate(0, 1.0, 0), scale(0.2, 0.5, 0.2))
+            }
+          ]
+        }
+      ]
+    }
+  ]
+};
+
 
 function drawNode(node, frame) {
   gl.uniformMatrix4fv(uModelView, false, multiply(frame, node.shape));
@@ -215,9 +330,10 @@ function drawTree(root, rootFrame) {
   const stack = [[root, rootFrame]];
   while (stack.length > 0) {
     const [node, parentFrame] = stack.pop();
-    const frame = multiply(parentFrame, node.joint);
-    drawNode(node, frame);
-    for (const child of node.children) stack.push([child, frame]);
+    const frame = multiply(parentFrame, node.joint ?? identity());
+    if (node.shape) drawNode(node, frame);
+    for (const child of node.children ?? []) stack.push([child, frame]);
+
   }
 }
 
@@ -232,26 +348,35 @@ function render(time) {
   // Camera moves with the keys; the light stays fixed in the world.
   const view = translate(camX, camY, camZ);
   gl.uniformMatrix4fv(uProjection, false, projection);
-  gl.uniform3fv(uLightPos, transformPoint(view, lightWorld));
+ // gl.uniform3fv(uLightPos, transformPoint(view, lightWorld));
+ 
+gl.uniform3fv(uLightPos, new Float32Array(
+  lightsWorld.flatMap(p => transformPoint(view, p))
+));
+gl.uniform1f(uKa, lightsTerms["Ka"]);
+gl.uniform1f(uKd, lightsTerms["Kd"]);
+gl.uniform1f(uKs, lightsTerms["Ks"]);
+gl.uniform1f(uAlpha, lightsTerms["Alpha"]);
+
 
   // Whole-model rotation
   const axisRotation = ROTATE[axisSelect.value](sliderAngle * Math.PI / 180 + spinAngle);
   const rotation = multiply(rotateY(dragRotY), rotateX(dragRotX), axisRotation); 
 
-  // Lower arm (root)
-  lowerArm.joint =  identity();
-  
-//   multiply(translate(0, -2, 0), rotation, rotateZ(0)); // rotateZ(0.5 * Math.sin(t))
+  scene.joint = multiply(translate(0, -2, 0), rotation, rotateZ(0));
+  //   floor.joint = identity();
 
-  // Upper arm (child)
-  upperArm.joint = identity();
-  
-//   multiply(translate(0, 1.2, 0), rotateZ(0)); // rotateZ(Math.sin(1.5 * t))
+  // // Lower arm (root)
+  // gear0.joint =  multiply(translate(0, -2, 0), rotation, rotateZ(0)); // rotateZ(0.5 * Math.sin(t))
 
-  M = gear2.shape; 
-  gear2.joint = multiply(identity(), rotation); //identity();
+  // // Upper arm (child)
+  // link0.joint = multiply(translate(0, 1.2, 0), rotateZ(0)); // rotateZ(Math.sin(1.5 * t))
 
-  drawTree(lowerArm, view);
+  // gear1.joint = identity();
+
+
+
+  drawTree(scene, view);
   requestAnimationFrame(render);
 }
 requestAnimationFrame(render);

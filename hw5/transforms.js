@@ -37,6 +37,11 @@ function multiply(...matrices) {
   return result;
 }
 
+// Move the pivot to the origin, rotate, move it back
+function rotateAbout(rotation, [px, py, pz]) {
+  return multiply(translate(px, py, pz), rotation, translate(-px, -py, -pz));
+}
+
 function translate(x, y, z) {
   return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1]);
 }
