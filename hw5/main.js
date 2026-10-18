@@ -1,76 +1,140 @@
-const VERTEX_SHADER = `#version 300 es
-in vec3 aPosition;
-in vec3 aNormal;
+// LIGHTING_GLSL is shared by both vertex and fragment shader
 
-uniform mat4 uModelView;
-uniform mat4 uProjection;
-
-out vec3 vPosition;
-out vec3 vNormal;
-
-void main() {
-  vec4 p = uModelView * vec4(aPosition, 1.0);
-  vPosition = p.xyz;
-  vNormal = transpose(inverse(mat3(uModelView))) * aNormal;
-  gl_Position = uProjection * p;
-}
-`;
-
-const FRAGMENT_SHADER = `#version 300 es
-precision mediump float;
-
-in vec3 vPosition;
-in vec3 vNormal;
-
+const LIGHTING_GLSL = `
 const int NUM_LIGHTS = 3;
-uniform vec3 uLightPos[NUM_LIGHTS];   // eye space
 
-uniform float uKa;
-uniform float uKd;
-uniform float uKs;
-uniform float uAlpha;
-
+uniform vec3 uLightPos[NUM_LIGHTS]; // eye space
 uniform vec3 uColor;
 
-out vec4 fragColor;
+uniform float uKa;  // how strongly the material reflects ambient light
+uniform float uKd;  // matte appearance
+uniform float uKs;  // strength of shiny patch
+uniform float uAlpha; // sharpness of shiny patch
 
-vec3 calculateLight(vec3 lightPos, vec3 normal, vec3 viewDir) {
+uniform highp int uShading; // 0-flat, 1-gouraud, 2-phong
+
+uniform vec3 uSpotDir[NUM_LIGHTS];
+uniform float uCutoff;
+uniform float uSpotExponent;
+
+uniform vec3 uSpecularColor;
+uniform vec3 uDiffuseColor;
+uniform vec3 uAmbientColor;
+
+uniform vec3 uLightColor;
+
+vec3 calculateLight(vec3 lightPos, vec3 position, vec3 normal, vec3 viewDir, vec3 color) {
     // Diffuse
-    vec3 lightDir = normalize(lightPos - vPosition);    // points towards light
-    float cosTheta = max(dot(normal, lightDir), 0.0);   // how aligned is the surface normal and l
-    vec3 diffuse = uKd * cosTheta * uColor; 
+    vec3 lightDir = normalize(lightPos - position);    // points towards light
+    float cosTheta = max(dot(normal, lightDir), 0.0);  // how aligned is the surface normal and light
+    vec3 diffuse = uKd * cosTheta * color; 
 
     // Specular
-    vec3 reflectDir = -reflect(lightDir, normal);
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), uAlpha);
+    float spec = 0.0;
+    if (cosTheta > 0.0) 
+    { // only when the surface faces the light
+      vec3 reflectDir = reflect(-lightDir, normal);
+      spec = pow(max(dot(viewDir, reflectDir), 0.0), uAlpha);
+    }
     vec3 specular = uKs * spec * vec3(1.0);
 
-    float d = length(lightPos - vPosition);
+    float d = length(lightPos - position);
     float f_att = 1.0/(1.0 + 0.09*d + 0.032*d*d);     // smooth natural fade
 
     return f_att * (diffuse + specular);
 }
 
-void main() {
+vec3 shadeSurface(vec3 position, vec3 normal, vec3 color) {
+  vec3 viewDir = normalize(-position);  // camera is at the origin
+  
+  // Ambient (only computed once, not per light)
+  vec3 result = uKa * color;
 
+  for (int i = 0; i < NUM_LIGHTS; ++i) {
+    result += calculateLight(uLightPos[i], position, normal, viewDir, color);
+  }
+
+  return result;
+}
+
+vec3 calculateSpotLight(vec3 position, vec3 normal, vec3 color) {
+  vec3 viewDir = normalize(-position);  // camera is at the origin
+  
+  
+
+  // Ambient (only computed once, not per light)
+  vec3 result = uKa * color;
+
+  for (int i = 0; i < NUM_LIGHTS; ++i) {
+    vec3 lightToSurface = normalize(position - uLightPos[i]);
+    vec3 lightDir = normalize(uLightPos[i] - position);
+    float c = dot(lightToSurface, normalize(uSpotDir[i]));
+    float spot = (c >= uCutoff) ? pow(c, uSpotExponent) : 0.0;  
+  
+    result += spot * calculateLight(uLightPos[i], position, normal, viewDir, color);
+  }
+
+  return result;
+}
+
+`;
+
+const VERTEX_SHADER = `#version 300 es
+precision highp float;
+in vec3 aPosition;
+in vec3 aNormal;
+
+uniform mat4 uModelView;
+uniform mat4 uProjection;
+${LIGHTING_GLSL}
+
+out vec3 vPosition; // Phong
+out vec3 vNormal; // Phong
+out vec3 vColor; // Gouraud
+flat out vec3 vFlatColor; // Flat shading (flat - same for triangle)
+
+
+void main() {
+  vec4 p = uModelView * vec4(aPosition, 1.0);
+  vec3 n = normalize(transpose(inverse(mat3(uModelView))) * aNormal);
+  vPosition = p.xyz;
+  vNormal = n;
+  vColor = shadeSurface(p.xyz, n, uColor);
+  // vColor = calculateSpotLight(p.xyz, n, uColor);
+  vFlatColor = vColor;
+
+  gl_Position = uProjection * p;
+}
+`;
+
+const FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+${LIGHTING_GLSL}
+
+in vec3 vPosition;
+in vec3 vNormal;
+in vec3 vColor; // Gouraud
+flat in vec3 vFlatColor; // Flat shading (flat - same for triangle)
+
+out vec4 fragColor;
+
+
+void main() {
+  
   /********************************************
    * Normalize here because the rasterizer's interpolation can change the normal’s length
    ********************************************/
-  vec3 N = normalize(vNormal); 
-
-  // Ambient (only computed once, not per light)
-  vec3 ambient = uKa * uColor;
-
-  vec3 V = normalize(-vPosition);           // camera sits at the origin
-  //vec3 viewDir = normalize(uViewPos - vPosition);
-  vec3 viewDir = normalize(V - vPosition);
-
-  vec3 result = ambient;
-  for (int i = 0; i < NUM_LIGHTS; ++i) {
-    result += calculateLight(uLightPos[i], N, viewDir);
+  vec3 c;
+  if (uShading == 0) {
+    c = vFlatColor;
+  } else if (uShading == 1) {
+    c = vColor;
   }
+  else { c = shadeSurface(vPosition, normalize(vNormal), uColor); }
+  // else { c = calculateSpotLight(vPosition, normalize(vNormal), uColor); }
 
-  fragColor = vec4(result, 1.0);
+    fragColor = vec4(c, 1.0);
+
 }
 `;
 
@@ -110,6 +174,12 @@ let program, uModelView, uProjection, uLightPos, uColor;
 
 let uKa, uKd, uKs, uAlpha; 
 
+let uShading;
+
+let uSpotDir, uCutoff, uSpotExponent;
+
+let uSpecularColor, uDiffuseColor, uAmbientColor, uLightColor;
+
 function updateProgram() {
   try {
     const prog = createProgram(vertEditor.value, fragEditor.value);
@@ -125,6 +195,17 @@ function updateProgram() {
     uKd = gl.getUniformLocation(program, "uKd");
     uKs = gl.getUniformLocation(program, "uKs");
     uAlpha = gl.getUniformLocation(program, "uAlpha");
+
+    uShading = gl.getUniformLocation(program, "uShading");
+
+    uSpotDir = gl.getUniformLocation(program, "uSpotDir[0]");
+    uCutoff = gl.getUniformLocation(program, "uCutoff");
+    uSpotExponent = gl.getUniformLocation(program, "uSpotExponent");
+
+    uSpecularColor = gl.getUniformLocation(program, "uSpecularColor");
+    uDiffuseColor = gl.getUniformLocation(program, "uDiffuseColor");
+    uAmbientColor = gl.getUniformLocation(program, "uAmbientColor");
+    uLightColor = gl.getUniformLocation(program, "uLightColor");
 
     shaderError.textContent = "";
   } catch (e) {
@@ -154,6 +235,9 @@ function createMesh({ positions, normals, indices }) {
 
 const cubeMesh = createMesh(createCube());
 const cylinderMesh = createMesh(createCylinder(32));
+const sphereMesh = createMesh(createSphere(32));
+const coneMesh = createMesh(createCone(32));
+const tubeMesh = createMesh(createTube(32));
 const gearMesh = createMesh(createGear(12 * 16));
 
 gl.enable(gl.DEPTH_TEST);
@@ -163,20 +247,49 @@ const projection = perspective(Math.PI / 4, canvas.width / canvas.height, 0.1, 1
 
 // const lightWorld = [3, 4, 5];
 // const lightWorld = [0, 1, 0];
-const light_dist = 3.0;
+const light_dist = 4.0; 
 const lightsWorld = [
   [light_dist, 0, 0],
   [0, light_dist, 0],
   [0, 0, light_dist],
 ];
 
+const lightsSpotDir = [];
+
+for (let i = 0; i < 3; ++i) {
+  let spherePos = [0, 2, 0];
+  spherePos[i] -= lightsWorld;
+  // lightsSpotDir.push(normalize(spherePos));
+  lightsSpotDir.push(normalize([-1,-1,-1]));
+  
+}
+
 const lightsTerms = {
   Ka: 0.2, Kd: 0.8, Ks: 0.5, Alpha: 32.0
 };
 
+const materials = {
+  housing: {
+    Ka: 0.1, Kd: 0.75, Ks: 0.25, Alpha: 32.0,
+    diffuseColor:  [0.12, 0.13, 0.14],
+    specularColor: [1.0, 1.0, 1.0],
+  },
+  metal: {
+    Ka: 0.1, Kd: 0.25, Ks: 0.75, Alpha: 64.0,
+    diffuseColor:  [0.55, 0.57, 0.60],
+    specularColor: [0.90, 0.92, 0.95],
+  },
+};
+
+const spotLightTerms = {
+  Cutoff: Math.cos(Math.PI / 4), SpotExponent: 0.0,
+};
+
+
+
 // Interactive controls
 let dragRotX = 0, dragRotY = -0.5;      // mouse drag
-let camX = 0, camY = 0, camZ = -7;      // arrow keys, w, s
+let camX = 0, camY = 0, camZ = -10;      // arrow keys, w, s
 let sliderAngle = 0;                    // degrees
 let spinning = false, spinAngle = 0;    // Start/Stop button
 
@@ -220,54 +333,16 @@ document.getElementById("slider").addEventListener("input", e => {
 document.getElementById("spinButton").addEventListener("click", () => spinning = !spinning);
 
 
-function createNode(mesh=null, color=null, shape=null, joint=identity()) {
-  return { mesh, color, shape, joint, children: [] };
-}
+document.getElementById("shadingSelect").addEventListener("change", (event) => {
+  selectedShading = event.target.selectedIndex;
+  console.log("Selected:", selectedShading);
+  gl.uniform1i(uShading, selectedShading);
+});
 
-/*
-// Lower arm: scale the cylinder then move it up by 0.6 so its bottom sits at the joint
-const lowerArm = createNode(cylinderMesh, [1, 0.2, 0.2],
-  multiply(translate(0, 0.6, 0), scale(0.3, 0.6, 0.3)));
+// function createNode(mesh=null, color=null, shape=null, joint=identity()) {
+//   return { mesh, color, shape, joint, children: [] };
+// }
 
-// Upper arm: scale the cube then move it up by 0.5 so its bottom sits at the joint
-const upperArm = createNode(cubeMesh, [0.2, 0.4, 1],
-  multiply(translate(0, 0.5, 0), scale(0.2, 0.5, 0.2)));
-*/
-
-
-const gear1 = createNode(gearMesh, [1, 0.2, 0.2],
-  multiply(translate(0, 1.5, 0), rotateX(Math.PI/2), scale(0.3, 0.6, 0.3)),
-multiply(translate(0, 1.5, 0), rotateX(Math.PI/2)));
-const link1 = createNode(cubeMesh, [0.5, 0.4, 1],
-  multiply(translate(0, 1.0, 0), scale(0.2, 0.5, 0.2)));
-
-// const scene = {
-//   name: "scene",
-//   children: [
-//     {
-//       name: "floor",
-//       mesh: cubeMesh,
-//       color: [0, 0, 0.5],
-//       shape: multiply(translate(0, -2.5, 0), scale(3, 0.6, 3))
-//     },
-//     {
-//       name: "gearPivot0",
-//       shape: translate(0, 0.6, 0),
-//       children: [
-//         {
-//           name: "gear0",
-//           mesh: gearMesh,
-//           color: [1, 0.2, 0.2],
-//           shape: multiply(translate(0, 0, 0), scale(0.3, 0.6, 0.3)),
-//         },
-//         {
-
-//         }
-//       ]
-//     }
-//   ]
-
-// };
 
 const scene = {
   name: "scene",
@@ -276,11 +351,30 @@ const scene = {
       name: "floor",
       mesh: cubeMesh,
       color: [0, 0, 0.5],
-      shape: multiply(translate(0, -2.5, 0), scale(3, 0.6, 3))
+      shape: multiply(translate(0, -2.5, 0), scale(20, 0.6, 20))
+    },
+    // {
+    //   name: "flat sphere",
+    //   mesh: sphereMesh,
+    //   color: [1, 1, 1], // white
+    //   shape: multiply(translate(0, 2, 0), scale(1, 1, 1))
+    // },
+    //     {
+    //   name: "cone",
+    //   mesh: coneMesh,
+    //   color: [1, 1, 1], // white
+    //   shape: multiply(translate(0, 2, 0), scale(1, 1, 1))
+    // },
+           {
+      name: "tube",
+      mesh: tubeMesh,
+      // material: "metal",
+      color: [1, 1, 1], // white
+      shape: multiply(translate(0, 2, 0), scale(1, 1, 1))
     },
     {
       name: "gearPivot0",
-      joint: translate(0, 0.6, 0),
+      joint: translate(0, 0.5, 0),
       children: [
         {
           name: "gear0",
@@ -317,10 +411,35 @@ const scene = {
   ]
 };
 
+// Name -> node lookup, built once so the render loop can reach any node
+// directly, e.g. nodes.gearPivot1.joint = ...
+function indexNodes(node, byName = {}) {
+  if (node.name) {
+    if (byName[node.name]) console.warn(`duplicate node name: ${node.name}`);
+    byName[node.name] = node;
+  }
+  for (const child of node.children ?? []) indexNodes(child, byName); 
+  return byName;
+}
+const nodes = indexNodes(scene);
+
 
 function drawNode(node, frame) {
+  if (node.material) {
+     gl.uniform1f(uKa, materials[node.material].uKa);
+     gl.uniform1f(uKd, materials[node.material].uKd);
+     gl.uniform1f(uKs, materials[node.material].uKs);
+     gl.uniform1f(uAlpha, materials[node.material].uAlpha);
+
+  } else {
+    gl.uniform1f(uKa, lightsTerms["Ka"]);
+    gl.uniform1f(uKd, lightsTerms["Kd"]);
+    gl.uniform1f(uKs, lightsTerms["Ks"]);
+    gl.uniform1f(uAlpha, lightsTerms["Alpha"]);
+  }
   gl.uniformMatrix4fv(uModelView, false, multiply(frame, node.shape));
   gl.uniform3fv(uColor, node.color);
+  
   gl.bindVertexArray(node.mesh.vao);
   gl.drawElements(gl.TRIANGLES, node.mesh.count, gl.UNSIGNED_SHORT, 0);
 }
@@ -353,17 +472,25 @@ function render(time) {
 gl.uniform3fv(uLightPos, new Float32Array(
   lightsWorld.flatMap(p => transformPoint(view, p))
 ));
-gl.uniform1f(uKa, lightsTerms["Ka"]);
-gl.uniform1f(uKd, lightsTerms["Kd"]);
-gl.uniform1f(uKs, lightsTerms["Ks"]);
-gl.uniform1f(uAlpha, lightsTerms["Alpha"]);
+gl.uniform3fv(uSpotDir, new Float32Array(lightsSpotDir.flat()));
+// gl.uniform1f(uKa, lightsTerms["Ka"]);
+// gl.uniform1f(uKd, lightsTerms["Kd"]);
+// gl.uniform1f(uKs, lightsTerms["Ks"]);
+// gl.uniform1f(uAlpha, lightsTerms["Alpha"]);
 
+
+
+gl.uniform1f(uCutoff, spotLightTerms["Cutoff"]);  // cone's half-angle
+gl.uniform1f(uSpotExponent, spotLightTerms["SpotExponent"]);
 
   // Whole-model rotation
   const axisRotation = ROTATE[axisSelect.value](sliderAngle * Math.PI / 180 + spinAngle);
   const rotation = multiply(rotateY(dragRotY), rotateX(dragRotX), axisRotation); 
 
-  scene.joint = multiply(translate(0, -2, 0), rotation, rotateZ(0));
+  scene.joint = rotation;
+
+
+  nodes.gearPivot1.joint = multiply(nodes.gearPivot1.joint, rotateY(0.5 * Math.sin(t)));
   //   floor.joint = identity();
 
   // // Lower arm (root)

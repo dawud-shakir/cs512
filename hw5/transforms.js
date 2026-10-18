@@ -65,6 +65,8 @@ function rotateZ(a) {
   return new Float32Array([c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 }
 
+const ROTATE = { x: rotateX, y: rotateY, z: rotateZ };
+
 function identity() {
   return new Float32Array([
     1, 0, 0, 0,
@@ -87,4 +89,20 @@ function transformPoint(m, [x, y, z]) {
   ];
 }
 
-const ROTATE = { x: rotateX, y: rotateY, z: rotateZ };
+function dot(a, b) {
+  return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+}
+
+function cross(a, b) {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0]
+  ];
+}
+
+function normalize(v) {
+  const len = Math.hypot(v[0], v[1], v[2]);
+  return len > 0 ? v.map(x => x / len) : [0, 0, 0];
+}
+
