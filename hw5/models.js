@@ -88,18 +88,16 @@ function createCone(segments) {
 function createTube(
     segments,
     R = 1.0,
-    r = 0.25, 
-    rangeu=[0, Math.PI*2],
-    rangev=[Math.PI, Math.PI*2]) {
+    r = 0.25) {
     const pos = [], nrm = [], idx = [];
     
 
     for (let i = 0; i <= segments; ++i) {
-        const v = rangev[0] + (i / segments) * (rangev[1] - rangev[0]);
+        const v = (i / segments) * Math.PI * 2;
         const cosv = Math.cos(v), sinv = Math.sin(v);
 
         for (let j = 0; j <= segments; ++j) {
-            const u = rangeu[0] + (j / segments) * (rangeu[1] - rangeu[0]);
+            const u = (j / segments) * Math.PI * 2;
             const cosu = Math.cos(u), sinu = Math.sin(u);
 
             const x = (R + r * cosu) * cosv;
@@ -126,23 +124,7 @@ function createTube(
             idx.push(c, b, d);
         }
     }
-
-//       // Caps
-//   for (const y of [-1, 1]) {
-//     const center = pos.length / 3;
-//     pos.push(0, y, 0);
-//     nrm.push(0, y, 0);
-//     for (let i = 0; i <= segments; i++) {
-//       const a = (i / segments) * Math.PI * 2;
-//       pos.push(Math.cos(a), y, Math.sin(a));
-//       nrm.push(0, y, 0);
-//     }
-//     for (let i = 1; i <= segments; i++) {
-//       if (y > 0) idx.push(center, center + i + 1, center + i);
-//       else idx.push(center, center + i, center + i + 1);
-//     }
-//   }
-
+    
     return { positions: new Float32Array(pos), normals: new Float32Array(nrm), indices: new Uint16Array(idx) };
 }
 

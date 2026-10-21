@@ -20,6 +20,26 @@
     #shaderError { color: #f66; white-space: pre-wrap; width: 400px; margin: 0; }
     .controls { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
     .control-row { display: flex; align-items: center; gap: 10px; }
+
+    /* Option bubbles (radio group styled as bubbles) */
+    .option-bubbles { display:flex; gap:8px; align-items:center; margin-top:6px; }
+    .option-bubbles input[type="radio"] { display:none; }
+    .option-bubbles label { 
+      cursor:pointer;
+      padding:6px 10px;
+      border-radius:999px;
+      background:#222;
+      color:#ccc;
+      border:1px solid #444;
+      font-size:13px;
+      user-select:none;
+    }
+    .option-bubbles input[type="radio"]:checked + label {
+      background: linear-gradient(#4a90e2,#2b6fb3);
+      color:#fff;
+      border-color:#1b4f8a;
+      box-shadow:0 2px 6px rgba(0,0,0,0.6);
+    }
   </style>
 </head>
 
@@ -29,6 +49,9 @@
     Drag with the mouse to rotate the model.<br>
     Use the arrow keys and w, s keys to move the camera.<br>
     Use the slider and dropdown to rotate about an axis; the button starts/stops spinning.</p>
+    
+    
+    <!-- Perlin's original noise paper and most game and graphics texts as the default "ease in, ease out" curve.  -->
 
   <div class="layout">
     <div class="editors">
@@ -44,7 +67,7 @@
     </div>
 
     <div>
-      <canvas id="glcanvas" width="400" height="400"></canvas>
+      <canvas id="glcanvas" width="700" height="700"></canvas>
 
       <div class="controls">
         <div class="control-row">
@@ -62,19 +85,112 @@
         </div>
       </div>
       <div>
-        <label for="shadingSelect">Shading:</label>
-        <select id="shadingSelect">
-            <option value="flat">Flat</option>
-            <option value="gouraud">Gouraud</option>
-            <option value="phong">Phong</option>
-        </select>
+        <label>Shading:</label>
+        <div class="option-bubbles" id="shadingBubbles">
+          <input type="radio" id="shading_flat" name="shading" value="flat">
+          <label for="shading_flat">Flat</label>
+          <input type="radio" id="shading_gouraud" name="shading" value="gouraud">
+          <label for="shading_gouraud">Gouraud</label>
+          <input type="radio" id="shading_phong" name="shading" value="phong" checked>
+          <label for="shading_phong">Phong</label>
+        </div>
+      </div>
+
+      <div>
+        <label>Lighting:</label>
+        <div class="option-bubbles" id="lightingBubbles">
+          <input type="radio" id="lighting_point" name="lighting" value="point">
+          <label for="lighting_point">Point</label>
+          <input type="radio" id="lighting_spot" name="lighting" value="spot" checked>
+          <label for="lighting_spot">Spotlight</label>
+        </div>
+      </div>
+
+      <div class="controls" id="jointsControls">
+        <h3 style="margin:8px 0 4px 0">Joint Controls</h3>
+        <div class="control-row">
+          <label for="basePivot">basePivot (Y):</label>
+          <input type="range" id="basePivot" class="joint-slider" min="-180" max="180" value="0" step="1">
+          <span id="basePivotValue">0°</span>
+        </div>
+        <div class="control-row">
+          <label for="shoulderPivot">shoulderPivot (Z):</label>
+          <input type="range" id="shoulderPivot" class="joint-slider" min="-90" max="90" value="-30" step="1">
+          <span id="shoulderPivotValue">-30°</span> 
+        </div>
+        <div class="control-row">
+          <label for="elbowPivot">elbowPivot (Z):</label>
+          <input type="range" id="elbowPivot" class="joint-slider" min="-150" max="150" value="-80" step="1">
+          <span id="elbowPivotValue">-80°</span>
+        </div>
+        <div class="control-row">
+          <label for="wristPivot">wristPivot (Z):</label>
+          <input type="range" id="wristPivot" class="joint-slider" min="-150" max="150" value="-70" step="1">
+          <span id="wristPivotValue">-70°</span>
+        </div>
+        <div class="control-row">
+          <label for="gripperPivot">gripperPivot (Y):</label>
+          <input type="range" id="gripperPivot" class="joint-slider" min="-180" max="180" value="0" step="1">
+          <span id="gripperPivotValue">0°</span>
+        </div>
+        <div class="control-row">
+          <label for="fingerPivot_-1">fingerPivot_-1 (Z):</label>
+          <input type="range" id="fingerPivot_-1" class="joint-slider" min="-10" max="15" value="-8" step="1">
+          <span id="fingerPivot_-1Value">-8°</span>
+        </div>
+        <div class="control-row">
+          <label for="fingerPivot_1">fingerPivot_1 (Z):</label>
+          <input type="range" id="fingerPivot_1" class="joint-slider" min="-15" max="10" value="8" step="1">
+          <span id="fingerPivot_1Value">8°</span>
+        </div>
+        <div class="control-row">
+          <label for="fingerTipPivot_-1">fingerTipPivot_-1 (Z):</label>
+          <input type="range" id="fingerTipPivot_-1" class="joint-slider" min="-15" max="0" value="-12" step="1">
+          <span id="fingerTipPivot_-1Value">-12°</span>
+        </div>
+        <div class="control-row">
+          <label for="fingerTipPivot_1">fingerTipPivot_1 (Z):</label>
+          <input type="range" id="fingerTipPivot_1" class="joint-slider" min="0" max="15" value="12" step="1">
+          <span id="fingerTipPivot_1Value">12°</span>
+        </div>
+        <div class="control-row">
+          <button id="gripperButton">Open Gripper</button>
+        </div>
+        <div class="control-row">
+          <button id="armButton">Compress, then Extend Arm</button>
+        </div>
       </div>
     </div>
   </div>
 
   <script src="transforms.js"></script>
   <script src="models.js"></script>
+  <script src="lighting.js"></script>
+  <script src="gl.js"></script>
+  <script src="scene_graph.js"></script>
+  <script src="animations.js"></script>
   <script src="main.js"></script>
+  <script>
+    // Update displayed angle text for each joint slider and expose values
+    document.querySelectorAll('.joint-slider').forEach(slider => {
+      // value display span id is slider.id + 'Value' (some ids contain underscores/hyphens)
+      const span = document.getElementById(slider.id + 'Value');
+      function update() {
+        if (span) span.textContent = slider.value + '°';
+      }
+      slider.addEventListener('input', update);
+      update();
+    });
+
+    // Expose joint angles as a simple global object the rest of the app can read
+    window.jointAngles = {};
+    document.querySelectorAll('.joint-slider').forEach(slider => {
+      window.jointAngles[slider.id] = parseFloat(slider.value);
+      slider.addEventListener('input', () => {
+        window.jointAngles[slider.id] = parseFloat(slider.value);
+      });
+    });
+  </script>
 </body>
 
 </html>
