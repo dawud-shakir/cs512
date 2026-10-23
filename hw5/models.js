@@ -21,6 +21,21 @@ function createCube() {
   return { positions, normals, indices };
 }
 
+function createGrid(n) {
+  const pos = [], nrm = [], idx = [];
+  for (let i = 0; i <= n; i++)
+    for (let j = 0; j <= n; j++) {
+      pos.push(-1 + 2 * j / n, 0, -1 + 2 * i / n);
+      nrm.push(0, 1, 0);
+    }
+  for (let i = 0; i < n; i++)
+    for (let j = 0; j < n; j++) {
+      const a = i * (n + 1) + j, b = a + 1, c = a + n + 1, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  return { positions: new Float32Array(pos), normals: new Float32Array(nrm), indices: new Uint16Array(idx) };
+}
+
 function createCylinder(segments) {
   const pos = [], nrm = [], idx = [];
 
@@ -57,7 +72,7 @@ function createCylinder(segments) {
 function createCone(segments) {
   const pos = [], nrm = [], idx = [];
 
-   const s = Math.hypot(1, 2);   // r = 1, h = 2
+   const s = Math.hypot(1, 2);
   for (let i = 0; i <= segments; i++) {
     const a = (i / segments) * Math.PI * 2, x = Math.cos(a), z = Math.sin(a);
     const nx = 2 * x / s, ny = 1 / s, nz = 2 * z / s;
@@ -69,7 +84,6 @@ function createCone(segments) {
     idx.push(b, b + 1, b + 2);
   }
 
-  // Cap (base at y = -1)
   const center = pos.length / 3;
   pos.push(0, -1, 0);
   nrm.push(0, -1, 0);
@@ -115,9 +129,9 @@ function createTube(
 
     for (let i = 0; i < segments; ++i) {
         for (let j = 0; j < segments; ++j) {
-            const a = i * (segments + 1) + j;   // ring i, col j
+            const a = i * (segments + 1) + j;
             const b = a + 1;                    
-            const c = a + segments + 1;         // ring i+1, col j
+            const c = a + segments + 1;
             const d = c + 1;
             
             idx.push(c, a, b);
@@ -150,16 +164,14 @@ function createSphere(segments) {
 
     for (let i = 0; i < segments; ++i) {
         for (let j = 0; j < segments; ++j) {
-            const a = i * (segments + 1) + j;   // ring i, col j
+            const a = i * (segments + 1) + j;
             const b = a + 1;                    
-            const c = a + segments + 1;         // ring i+1, col j
+            const c = a + segments + 1;
             const d = c + 1;
             
-            // skip i = 0, south pole, a = b
             if (i > 0)
                 idx.push(c, a, b);
             
-            // skip, i = segments, north pole, c = d
             if (i < segments - 1)
                 idx.push(c, b, d);
         }
@@ -170,13 +182,12 @@ function createSphere(segments) {
 
 
 
-function createGear(segments) {
+function createGear(segments, holeRadius = 0.35) {
   const pos = [], nrm = [], idx = [];
 
-  const R = 1.0;       // average outer radius
-  const a = 0.15;      // tooth amplitude
-  const N = 12;        // teeth
-  const holeRadius = 0.35;
+  const R = 1.0;
+  const a = 0.15;
+  const N = 12;
   const h = 0.3;
 
   for (let i = 0; i <= segments; i++) {
@@ -201,29 +212,27 @@ function createGear(segments) {
     nx /= length;
     nz /= length;
 
-    pos.push(x, -h / 2, z, x, h / 2, z); // wall
+    pos.push(x, -h / 2, z, x, h / 2, z);
     nrm.push(nx, 0, nz, nx, 0, nz);
 
-    pos.push(ix, -h / 2, iz, ix, h / 2, iz); // hole
-    nrm.push(-c, 0, -s, -c, 0, -s); // point towards hole
+    pos.push(ix, -h / 2, iz, ix, h / 2, iz);
+    nrm.push(-c, 0, -s, -c, 0, -s);
 
-    pos.push(ix, h / 2, iz, x, h / 2, z); // top cap
+    pos.push(ix, h / 2, iz, x, h / 2, z);
     nrm.push(0, 1, 0, 0, 1, 0);
 
-    pos.push(ix, -h / 2, iz, x, -h / 2, z); // bottom cap
+    pos.push(ix, -h / 2, iz, x, -h / 2, z);
     nrm.push(0, -1, 0, 0, -1, 0);
   }
 
-  // Walls and caps
   for (let i = 0; i < segments; i++) {
     const b = i * 8;
     const n = (i + 1) * 8;
 
-    // Order per two triangles: A, C, B, A, D, C
-    idx.push(b,n+1,n,b,b+1,n+1);    // outer wall
-    idx.push(b+2,n+3,b+3,b+2,n+2,n+3); // hole wall
-    idx.push(b+4,n+5,b+5,b+4,n+4,n+5); // top cap
-    idx.push(b+6,n+7,n+6,b+6,b+7,n+7); // bottom cap
+    idx.push(b,n+1,n,b,b+1,n+1);
+    idx.push(b+2,n+3,b+3,b+2,n+2,n+3);
+    idx.push(b+4,n+5,b+5,b+4,n+4,n+5);
+    idx.push(b+6,n+7,n+6,b+6,b+7,n+7);
     
   }
 

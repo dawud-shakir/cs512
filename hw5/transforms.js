@@ -1,20 +1,6 @@
 const rad = degrees => degrees * Math.PI / 180;
 
 
-/*
-function multiply(a, b) {
-  const r = new Float32Array(16);
-  for (let i = 0; i < 4; i++)
-    for (let j = 0; j < 4; j++) {
-      let sum = 0;
-      for (let k = 0; k < 4; k++) sum += a[k * 4 + i] * b[j * 4 + k];
-      r[j * 4 + i] = sum;
-    }
-  return r;
-}
-*/
-
-// ((A x B) x C) x D ...
 function multiply(...matrices) {
   let result = new Float32Array([
     1, 0, 0, 0,
@@ -40,7 +26,6 @@ function multiply(...matrices) {
   return result;
 }
 
-// Move the pivot to the origin, rotate, move it back
 function rotateAbout(rotation, [px, py, pz]) {
   return multiply(translate(px, py, pz), rotation, translate(-px, -py, -pz));
 }
@@ -84,6 +69,25 @@ function perspective(fov, aspect, near, far) {
   return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]);
 }
 
+function rotateAxis([x, y, z], a) {
+  const c = Math.cos(a), s = Math.sin(a), t = 1 - c;
+  return new Float32Array([
+    t * x * x + c,     t * x * y + s * z, t * x * z - s * y, 0,
+    t * x * y - s * z, t * y * y + c,     t * y * z + s * x, 0,
+    t * x * z + s * y, t * y * z - s * x, t * z * z + c,     0,
+    0, 0, 0, 1
+  ]);
+}
+
+function rigidInverse(m) {
+  const r = new Float32Array(16);
+  for (let i = 0; i < 3; i++)
+    for (let j = 0; j < 3; j++) r[j * 4 + i] = m[i * 4 + j];
+  const t = transformDirection(r, [m[12], m[13], m[14]]);
+  r[12] = -t[0]; r[13] = -t[1]; r[14] = -t[2]; r[15] = 1;
+  return r;
+}
+
 function transformPoint(m, [x, y, z]) {
   return [
     m[0] * x + m[4] * y + m[8] * z + m[12],
@@ -92,7 +96,6 @@ function transformPoint(m, [x, y, z]) {
   ];
 }
 
-// Rotate a direction by the matrix, ignoring its translation.
 function transformDirection(m, [x, y, z]) {
   return [
     m[0] * x + m[4] * y + m[8] * z,
