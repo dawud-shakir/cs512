@@ -327,7 +327,7 @@ function component(name, mesh, material) {
   return { name, mesh, material, color: [1, 1, 1], shape: multiply.apply(null, transforms) };
 }
 
-function link(name, length, radius, [startClear, endClear]) {
+function segment(name, length, radius, [startClear, endClear]) {
   const collar = (suffix, y) => armObject(`${name}_${suffix}`, cylinderMesh, "joints", [0, y, 0], [radius + 0.02, 0.07, radius + 0.02]);
   return [
     armObject(name, cylinderMesh, "shell", [0, length / 2, 0], [radius, length / 2, radius]),
@@ -358,8 +358,8 @@ const startPose = {
   elbowPivot: -80,
   wristPivot: -70,
   gripperPivot: 0,
-  "fingerPivot_-1": -8,  fingerPivot_1: 8,
-  "fingerTipPivot_-1": -12, fingerTipPivot_1: 12,
+  fingerPivotLeft: -8,  fingerPivotRight: 8,
+  fingerTipPivotLeft: -12, fingerTipPivotRight: 12,
 };
 
 const camera = { name: "camera" };
@@ -410,7 +410,7 @@ const scene = {
               children: [].concat(
                 jointObject("shoulder", 0.43),
 
-                link("upperArm", upperLength, 0.22, [0.43, 0.39]),
+                segment("upperArm", upperLength, 0.22, [0.43, 0.39]),
 
                 {
                   name: "elbowPivot",
@@ -418,7 +418,7 @@ const scene = {
                   children: [].concat(
                     jointObject("elbow", 0.39),
 
-                    link("forearm", foreLength, 0.19, [0.39, 0.30]),
+                    segment("forearm", foreLength, 0.19, [0.39, 0.30]),
 
                     {
                       name: "wristPivot",
@@ -438,12 +438,12 @@ const scene = {
 
                             lightObject("gripperLight", [0, 0.13, 0.26], [0, 1, 0], [1,0,0]),
 
-                            [-1, 1].map(side => ({
-                              name: `fingerPivot_${side}`,
+                            [["Left", -1], ["Right", 1]].map(([hand, side]) => ({
+                              name: `fingerPivot${hand}`,
                               joint: translate(side * 0.25, 0.26, 0),
                               children: [
                                 armObject(
-                                  `fingerUpper_${side}`,
+                                  `fingerUpper${hand}`,
                                   cubeMesh,
                                   "aluminum",
                                   [0, 0.17, 0],
@@ -451,11 +451,11 @@ const scene = {
                                 ),
 
                                 {
-                                  name: `fingerTipPivot_${side}`,
+                                  name: `fingerTipPivot${hand}`,
                                   joint: translate(0, 0.34, 0),
                                   children: [
                                     armObject(
-                                      `fingerTip_${side}`,
+                                      `fingerTip${hand}`,
                                       cubeMesh,
                                       "rubber",
                                       [0, 0.13, 0],
@@ -501,10 +501,10 @@ const JOINTS = {
   elbowPivot: rotateZ,
   wristPivot: rotateZ,
   gripperPivot: rotateY,
-  "fingerPivot_-1": rotateZ,
-  fingerPivot_1: rotateZ,
-  "fingerTipPivot_-1": rotateZ,
-  fingerTipPivot_1: rotateZ,
+  fingerPivotLeft: rotateZ,
+  fingerPivotRight: rotateZ,
+  fingerTipPivotLeft: rotateZ,
+  fingerTipPivotRight: rotateZ,
 };
 
 const currentAngles = {};
@@ -555,8 +555,8 @@ for (const name in JOINTS) {
 }
 
 const GRIPPER_POSES = {
-  open:   { "fingerPivot_-1": 15,  fingerPivot_1: -15, "fingerTipPivot_-1": 0,   fingerTipPivot_1: 0 },
-  closed: { "fingerPivot_-1": -10, fingerPivot_1: 10,  "fingerTipPivot_-1": -15, fingerTipPivot_1: 15 },
+  open:   { fingerPivotLeft: 15,  fingerPivotRight: -15, fingerTipPivotLeft: 0,   fingerTipPivotRight: 0 },
+  closed: { fingerPivotLeft: -10, fingerPivotRight: 10,  fingerTipPivotLeft: -15, fingerTipPivotRight: 15 },
 };
 let gripperOpen = false;
 const gripperButton = document.getElementById("gripperButton");
@@ -618,7 +618,7 @@ function pickUpGear() {
   animationQueue.push({ targets: grasp, duration: 0.6, elapsed: 0, start: null });
   animationQueue.push({ targets: gripper(true), duration: 0.3, elapsed: 0, start: null, done: () => {
     updateFrames(scene, identity());
-    const tip = multiply(rigidInverse(nodes.gear.frame), nodes.fingerTipPivot_1.frame);
+    const tip = multiply(rigidInverse(nodes.gear.frame), nodes.fingerTipPivotRight.frame);
     if (Math.hypot(tip[12], tip[14]) > 0.42 || Math.abs(tip[13]) > 0.5) return;
     reparent(nodes.gear, nodes.gripperPivot);
     gearButton.textContent = "Drop Gear";
@@ -671,7 +671,7 @@ const materialControls = document.getElementById("materialControls");
 const byMaterial = name => Object.values(nodes).filter(node => node.material === name);
 
 const OBJECTS = {
-  "Arm links": byMaterial("shell"),
+  "Segments": byMaterial("shell"),
   "Joints": byMaterial("joints"),
   "Fingers": byMaterial("aluminum"),
   "Gear": [nodes.gear],
@@ -689,14 +689,16 @@ for (const [label, members] of Object.entries(OBJECTS)) {
     slider.value = alpha;
     value.textContent = alpha;
   };
-  select.value = members[0].material;
-  showShininess(materials[select.value].Alpha);
+  const initial = members[0].material;
+  select.value = initial;
+  showShininess(materials[initial].Alpha);
   select.addEventListener("input", () => {
+    const name = select.value === "default" ? initial : select.value;
     for (const node of members) {
-      node.material = select.value;
+      node.material = name;
       delete node.alpha;
     }
-    showShininess(materials[select.value].Alpha);
+    showShininess(materials[name].Alpha);
   });
   slider.addEventListener("input", () => {
     for (const node of members) node.alpha = Number(slider.value);

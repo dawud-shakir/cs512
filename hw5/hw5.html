@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="utf-8">
-  <title>Robot Arm Scene Graph</title>
+  <title>Gen-Mini</title>
   <style>
     body { background: #111; color: #ccc; font-family: monospace; }
     canvas { border: 1px solid #444; }
@@ -70,15 +70,12 @@
 </head>
 
 <body>
-  <h2>Robot Arm with Scene-Graph Lighting</h2>
-  <p>A jointed arm in a lit room. The arm, the room, the gear and all four lights are nodes of one scene graph,
-    so each light moves with whatever it hangs from. Picking up the gear reparents it under the gripper;
-    dropping it reparents it back to the room, where it falls and settles flat.</p>
-  <p>Drag to orbit, scroll to zoom, arrow keys and w/s to move the camera. The sliders pose the joints,
-    the buttons under the canvas run scripted motions, and the shaders on the left are live.</p>
-  <p>Pick-up uses two-link planar inverse kinematics: the base turns to face the gear, the elbow angle comes
-    from the law of cosines for the wrist's distance from the shoulder, the shoulder angle is the target
-    direction minus the elbow's offset, and the wrist cancels both so the gripper points straight down into the hole.</p>
+  <h2>Gen-Mini</h2>
+  <p>A robot arm with scene-graph lighting and inverse-kinematics pickup.</p>
+  <p>Edit the shaders on the left; the canvas updates as you type.<br>
+    Drag with the mouse to rotate the model.<br>
+    Use the arrow keys and w, s keys to move the camera. Scroll to zoom.<br>
+    Use the slider and dropdown to rotate about an axis; the button starts/stops spinning.</p>
     
     
 
@@ -100,7 +97,7 @@
         <canvas id="glcanvas" width="700" height="700"></canvas>
         <div class="control-row" id="actionButtons">
           <button id="gripperButton">Open Gripper</button>
-          <button id="armButton">Compress, then Extend Arm</button>
+          <button id="armButton">Compress + Extend Arm</button>
           <button id="gearButton">Pick Up Gear</button>
         </div>
       </div>
@@ -171,24 +168,24 @@
           <span id="gripperPivotValue">0°</span>
         </div>
         <div class="control-row">
-          <label for="fingerPivot_-1">fingerPivot_-1 (Z):</label>
-          <input type="range" id="fingerPivot_-1" class="joint-slider" min="-10" max="15" value="-8" step="1">
-          <span id="fingerPivot_-1Value">-8°</span>
+          <label for="fingerPivotLeft">fingerPivotLeft (Z):</label>
+          <input type="range" id="fingerPivotLeft" class="joint-slider" min="-10" max="15" value="-8" step="1">
+          <span id="fingerPivotLeftValue">-8°</span>
         </div>
         <div class="control-row">
-          <label for="fingerPivot_1">fingerPivot_1 (Z):</label>
-          <input type="range" id="fingerPivot_1" class="joint-slider" min="-15" max="10" value="8" step="1">
-          <span id="fingerPivot_1Value">8°</span>
+          <label for="fingerPivotRight">fingerPivotRight (Z):</label>
+          <input type="range" id="fingerPivotRight" class="joint-slider" min="-15" max="10" value="8" step="1">
+          <span id="fingerPivotRightValue">8°</span>
         </div>
         <div class="control-row">
-          <label for="fingerTipPivot_-1">fingerTipPivot_-1 (Z):</label>
-          <input type="range" id="fingerTipPivot_-1" class="joint-slider" min="-15" max="0" value="-12" step="1">
-          <span id="fingerTipPivot_-1Value">-12°</span>
+          <label for="fingerTipPivotLeft">fingerTipPivotLeft (Z):</label>
+          <input type="range" id="fingerTipPivotLeft" class="joint-slider" min="-15" max="0" value="-12" step="1">
+          <span id="fingerTipPivotLeftValue">-12°</span>
         </div>
         <div class="control-row">
-          <label for="fingerTipPivot_1">fingerTipPivot_1 (Z):</label>
-          <input type="range" id="fingerTipPivot_1" class="joint-slider" min="0" max="15" value="12" step="1">
-          <span id="fingerTipPivot_1Value">12°</span>
+          <label for="fingerTipPivotRight">fingerTipPivotRight (Z):</label>
+          <input type="range" id="fingerTipPivotRight" class="joint-slider" min="0" max="15" value="12" step="1">
+          <span id="fingerTipPivotRightValue">12°</span>
         </div>
 
 
