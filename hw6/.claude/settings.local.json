@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -)",
+      "Bash(python3 -m http.server 8765 --bind 127.0.0.1)",
+      "Bash(pkill -f \"http.server 8765\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{content_type} %{size_download}\\\\n\" http://127.0.0.1:8765/brick.png)",
+      "Bash(lsof -nP -iTCP:8765 -sTCP:LISTEN)"
+    ]
+  }
+}
