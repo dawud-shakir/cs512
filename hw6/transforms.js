@@ -69,3 +69,26 @@ function normalize(v) {
   const len = Math.hypot(v[0], v[1], v[2]);
   return len > 0 ? v.map(x => x / len) : [0, 0, 0];
 }
+
+// I am planning to use this if I have time:
+
+// function lookAt(eye, target, up = [0, 1, 0]) {
+//   // Camera's local +Z points backward
+//   const z = normalize(sub(eye, target));
+
+//   // Camera's local +X points right
+//   const x = normalize(cross(up, z));
+
+//   // Camera's local +Y points up
+//   const y = cross(z, x);
+
+//   return new Float32Array([
+//     x[0], y[0], z[0], 0,
+//     x[1], y[1], z[1], 0,
+//     x[2], y[2], z[2], 0,
+//     -dot(x, eye),
+//     -dot(y, eye),
+//     -dot(z, eye),
+//     1
+//   ]);
+// }

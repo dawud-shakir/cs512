@@ -26,7 +26,7 @@ function createCube() {
   return { positions, normals, tangents, texCoords, indices };
 }
 
-function createQuad(repeatU = 1, repeatV = repeatU) {
+function createGrid(repeatU = 1, repeatV = repeatU) {
   return {
     positions: new Float32Array([-1, 0, 1,   1, 0, 1,   1, 0, -1,  -1, 0, -1]),
     normals:   new Float32Array([ 0, 1, 0,   0, 1, 0,   0, 1,  0,   0, 1,  0]),
