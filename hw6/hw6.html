@@ -21,65 +21,17 @@
     #shaderError { color: #f66; white-space: pre-wrap; width: 400px; margin: 0; }
     .controls { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
     .control-row { display: flex; align-items: center; gap: 10px; }
-    .stage { display: flex; gap: 16px; align-items: flex-start; }
-    .canvas-column { display: flex; flex-direction: column; gap: 8px; }
-    .panel { display: flex; flex-direction: column; min-width: 320px; }
-    .panel > .controls:first-child { margin-top: 0; }
-    #moveButtons { flex-wrap: wrap; }
-
-    .option-bubbles { display:flex; gap:8px; align-items:center; margin-top:6px; }
-    .option-bubbles input[type="radio"] { display:none; }
-    .option-bubbles label { 
-      cursor:pointer;
-      padding:6px 10px;
-      border-radius:999px;
-      background:#222;
-      color:#ccc;
-      border:1px solid #444;
-      font-size:13px;
-      user-select:none;
-    }
-    .option-bubbles input[type="radio"]:checked + label {
-      background: linear-gradient(#4a90e2,#2b6fb3);
-      color:#fff;
-      border-color:#1b4f8a;
-      box-shadow:0 2px 6px rgba(0,0,0,0.6);
-    }
-
-    button, select {
-      cursor:pointer;
-      padding:6px 10px;
-      border-radius:999px;
-      background:#222;
-      color:#ccc;
-      border:1px solid #444;
-      font:13px monospace;
-    }
-    select {
-      appearance:none;
-      padding-right:26px;
-      background:#222 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23ccc'/%3E%3C/svg%3E") no-repeat right 10px center;
-    }
-    button:hover, select:hover { border-color:#4a90e2; }
-    button:active {
-      background: linear-gradient(#4a90e2,#2b6fb3);
-      color:#fff;
-      border-color:#1b4f8a;
-      box-shadow:0 2px 6px rgba(0,0,0,0.6);
-    }
   </style>
 </head>
 
 <body>
   <h2>Gen-Mini</h2>
-  <p>A robot arm with scene-graph lighting, inverse-kinematics pickup, and texture mapping:<br>
-    bump-mapped floor, walls and brick cube; normal-mapped cylinder; a video on the sphere.</p>
+  <p>A robot arm with scene-graph lighting and texture mapping:<br>
+    bump-mapped floor, walls and arm; normal-mapped cylinder; a video on the sphere and the screen.</p>
   <p>Edit the shaders on the left; the canvas updates as you type.<br>
     Drag with the mouse to rotate the model.<br>
     Use the arrow keys and w, s keys to move the camera. Scroll to zoom.<br>
     Use the slider and dropdown to rotate about an axis; the button starts/stops spinning.</p>
-    
-    
 
   <div class="layout">
     <div class="editors">
@@ -94,17 +46,9 @@
       <pre id="shaderError"></pre>
     </div>
 
-    <div class="stage">
-      <div class="canvas-column">
-        <canvas id="glcanvas" width="700" height="700"></canvas>
-        <div class="control-row" id="actionButtons">
-          <button id="gripperButton">Open Gripper</button>
-          <button id="armButton">Compress + Extend Arm</button>
-          <button id="gearButton">Pick Up Gear</button>
-        </div>
-      </div>
+    <div>
+      <canvas id="glcanvas" width="700" height="700"></canvas>
 
-      <div class="panel">
       <div class="controls">
         <div class="control-row">
           <label for="slider">Rotation Angle:</label>
@@ -119,88 +63,9 @@
           </select>
           <button id="spinButton">Start/Stop Rotation</button>
         </div>
-      </div>
-      <div>
-        <label>Shading:</label>
-        <div class="option-bubbles" id="shadingBubbles">
-          <input type="radio" id="shading_flat" name="shading" value="flat">
-          <label for="shading_flat">Flat</label>
-          <input type="radio" id="shading_gouraud" name="shading" value="gouraud">
-          <label for="shading_gouraud">Gouraud</label>
-          <input type="radio" id="shading_phong" name="shading" value="phong" checked>
-          <label for="shading_phong">Phong</label>
-        </div>
-      </div>
-
-      <div class="controls" id="lightingControls">
-        <h3 style="margin:8px 0 4px 0">Lighting</h3>
-      </div>
-
-      <div>
-        <label>Bump/Normal Mapping:</label>
-        <div class="option-bubbles" id="mappingBubbles">
-          <input type="radio" id="mapping_on" name="mapping" value="on" checked>
-          <label for="mapping_on">On</label>
-          <input type="radio" id="mapping_off" name="mapping" value="off">
-          <label for="mapping_off">Off</label>
-        </div>
-      </div>
-
-      <div class="controls" id="jointsControls">
-        <h3 style="margin:8px 0 4px 0">Joint Controls</h3>
         <div class="control-row">
-          <label for="basePivot">basePivot (Y):</label>
-          <input type="range" id="basePivot" class="joint-slider" min="-180" max="180" value="0" step="1">
-          <span id="basePivotValue">0°</span>
+          <button id="gripperButton">Open Gripper</button>
         </div>
-        <div class="control-row">
-          <label for="shoulderPivot">shoulderPivot (Z):</label>
-          <input type="range" id="shoulderPivot" class="joint-slider" min="-90" max="90" value="-30" step="1">
-          <span id="shoulderPivotValue">-30°</span> 
-        </div>
-        <div class="control-row">
-          <label for="elbowPivot">elbowPivot (Z):</label>
-          <input type="range" id="elbowPivot" class="joint-slider" min="-150" max="150" value="-80" step="1">
-          <span id="elbowPivotValue">-80°</span>
-        </div>
-        <div class="control-row">
-          <label for="wristPivot">wristPivot (Z):</label>
-          <input type="range" id="wristPivot" class="joint-slider" min="-150" max="150" value="-70" step="1">
-          <span id="wristPivotValue">-70°</span>
-        </div>
-        <div class="control-row">
-          <label for="gripperPivot">gripperPivot (Y):</label>
-          <input type="range" id="gripperPivot" class="joint-slider" min="-180" max="180" value="0" step="1">
-          <span id="gripperPivotValue">0°</span>
-        </div>
-        <div class="control-row">
-          <label for="fingerPivotLeft">fingerPivotLeft (Z):</label>
-          <input type="range" id="fingerPivotLeft" class="joint-slider" min="-10" max="15" value="-8" step="1">
-          <span id="fingerPivotLeftValue">-8°</span>
-        </div>
-        <div class="control-row">
-          <label for="fingerPivotRight">fingerPivotRight (Z):</label>
-          <input type="range" id="fingerPivotRight" class="joint-slider" min="-15" max="10" value="8" step="1">
-          <span id="fingerPivotRightValue">8°</span>
-        </div>
-        <div class="control-row">
-          <label for="fingerTipPivotLeft">fingerTipPivotLeft (Z):</label>
-          <input type="range" id="fingerTipPivotLeft" class="joint-slider" min="-15" max="0" value="-12" step="1">
-          <span id="fingerTipPivotLeftValue">-12°</span>
-        </div>
-        <div class="control-row">
-          <label for="fingerTipPivotRight">fingerTipPivotRight (Z):</label>
-          <input type="range" id="fingerTipPivotRight" class="joint-slider" min="0" max="15" value="12" step="1">
-          <span id="fingerTipPivotRightValue">12°</span>
-        </div>
-
-
-        <div class="control-row" id="moveButtons"></div>
-      </div>
-
-      <div class="controls" id="materialControls">
-        <h3 style="margin:8px 0 4px 0">Material/Shininess</h3>
-      </div>
       </div>
     </div>
   </div>
@@ -208,24 +73,6 @@
   <script src="transforms.js"></script>
   <script src="models.js"></script>
   <script src="main.js"></script>
-  <script>
-    document.querySelectorAll('.joint-slider').forEach(slider => {
-      const span = document.getElementById(slider.id + 'Value');
-      function update() {
-        if (span) span.textContent = slider.value + '°';
-      }
-      slider.addEventListener('input', update);
-      update();
-    });
-
-    window.jointAngles = {};
-    document.querySelectorAll('.joint-slider').forEach(slider => {
-      window.jointAngles[slider.id] = parseFloat(slider.value);
-      slider.addEventListener('input', () => {
-        window.jointAngles[slider.id] = parseFloat(slider.value);
-      });
-    });
-  </script>
 </body>
 
 </html>

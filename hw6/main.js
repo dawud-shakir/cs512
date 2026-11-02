@@ -1,176 +1,3 @@
-const NUM_LIGHTS = 5;
-
-const LIGHTING_GLSL = `
-const int NUM_LIGHTS = ${NUM_LIGHTS};
-
-uniform vec3 uLightPos[NUM_LIGHTS];   // eye space
-uniform vec3 uSpotDir[NUM_LIGHTS];
-uniform vec3 uLightColor[NUM_LIGHTS];
-uniform vec3 uColor;
-
-uniform float uKa;
-uniform float uKd;
-uniform float uKs;
-uniform float uAlpha;
-
-uniform highp int uShading;
-uniform highp int uLightType[NUM_LIGHTS];
-
-uniform float uCutoff;
-uniform float uSpotExponent;
-
-uniform vec3 uSpecularColor;
-uniform vec3 uDiffuseColor;
-uniform vec3 uAmbientColor;
-
-vec3 calculateLight(vec3 lightPos, vec3 lightColor, vec3 position, vec3 normal, vec3 viewDir, vec3 color) {
-    vec3 lightDir = normalize(lightPos - position);
-    float cosTheta = max(dot(normal, lightDir), 0.0);
-    vec3 diffuse = uKd * uDiffuseColor * lightColor * cosTheta * color;
-
-    float spec = 0.0;
-    if (cosTheta > 0.0)
-    {
-      vec3 reflectDir = reflect(-lightDir, normal);
-      spec = pow(max(dot(viewDir, reflectDir), 0.0), uAlpha);
-    }
-    vec3 specular = uKs * uSpecularColor * lightColor * spec;
-
-    float d = length(lightPos - position);
-    float f_att = 1.0/(1.0 + 0.09*d + 0.032*d*d);
-
-    return f_att * (diffuse + specular);
-}
-
-float spotFactor(int i, vec3 position) {
-  if (uLightType[i] == 0) return 1.0;
-  vec3 lightToSurface = normalize(position - uLightPos[i]);
-  float c = dot(lightToSurface, uSpotDir[i]);
-  return (c >= uCutoff) ? pow(c, uSpotExponent) : 0.0;
-}
-
-vec3 shadeSurface(vec3 position, vec3 normal, vec3 color) {
-  vec3 viewDir = normalize(-position);
-
-  vec3 result = uKa * uAmbientColor * color;
-
-  for (int i = 0; i < NUM_LIGHTS; ++i) {
-    result += spotFactor(i, position) * calculateLight(uLightPos[i], uLightColor[i], position, normal, viewDir, color);
-  }
-
-  return result;
-}
-`;
-
-const TEXTURE_GLSL = `
-uniform sampler2D uTexture;
-uniform highp int uMapping;  // 0 = bump mapping, 1 = normal mapping, 2 = none
-uniform highp int uPerturb;
-
-const float bumpScale = 3.0;
-
-vec3 baseColor(vec2 uv) {
-  return uMapping == 0 ? uColor * texture(uTexture, uv).rgb : uColor;
-}
-`;
-
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-in vec3 aPosition;
-in vec3 aNormal;
-in vec3 aTangent;
-in vec2 aTexCoord;
-
-uniform mat4 uModelView;
-uniform mat4 uProjection;
-${LIGHTING_GLSL}
-${TEXTURE_GLSL}
-
-out vec3 vPosition;
-out vec3 vNormal;
-out vec3 vTangent;
-out vec2 vTexCoord;
-out vec3 vDiffuse;
-out vec3 vSpecular;
-flat out vec3 vFlatPosition;
-
-void main() {
-  vec4 p = uModelView * vec4(aPosition, 1.0);
-  mat3 mv = mat3(uModelView);
-  vec3 n = normalize(transpose(inverse(mv)) * aNormal);
-  vPosition = p.xyz;
-  vFlatPosition = p.xyz;
-  vNormal = n;
-  vTangent = mv * aTangent;
-  vTexCoord = aTexCoord;
-  vSpecular = shadeSurface(p.xyz, n, vec3(0.0));
-  vDiffuse = shadeSurface(p.xyz, n, vec3(1.0)) - vSpecular;
-
-  gl_Position = uProjection * p;
-}
-`;
-
-const FRAGMENT_SHADER = `#version 300 es
-precision highp float;
-${LIGHTING_GLSL}
-${TEXTURE_GLSL}
-
-in vec3 vPosition;
-in vec3 vNormal;
-in vec3 vTangent;
-in vec2 vTexCoord;
-in vec3 vDiffuse;
-in vec3 vSpecular;
-flat in vec3 vFlatPosition;
-
-out vec4 fragColor;
-
-// convert RGB to luminance (Rec._601 standard, https://en.wikipedia.org/wiki/Rec._601)
-// or you can use a height map texture
-float height(vec2 uv) {
-  vec3 c = texture(uTexture, uv).rgb;
-  return 1.0 - dot(c, vec3(0.299, 0.587, 0.114));
-}
-
-vec3 perturbedNormal(vec3 N, vec2 uv) {
-  if (uMapping == 2 || uPerturb == 0) return N;
-
-  // Tangent frame (T, B, N)
-  vec3 T = normalize(vTangent - dot(vTangent, N) * N);  // reorthogonalize tangent against normal
-  vec3 B = cross(N, T);
-  mat3 TBN = mat3(T, B, N);
-
-  vec3 n;
-  if (uMapping == 0) {
-    // Bump mapping: tilt the normal against the gradient of the height field
-    vec2 du = vec2(1.0 / float(textureSize(uTexture, 0).x), 0.0);
-    vec2 dv = vec2(0.0, 1.0 / float(textureSize(uTexture, 0).y));
-    float dhdu = (height(uv + du) - height(uv - du)) * 0.5;
-    float dhdv = (height(uv + dv) - height(uv - dv)) * 0.5;
-    n = normalize(vec3(-bumpScale * dhdu, -bumpScale * dhdv, 1.0));
-  } else {
-    // Normal mapping: the texture stores the tangent-space normal in [0, 1]
-    n = normalize(texture(uTexture, uv).rgb * 2.0 - 1.0);
-  }
-  return normalize(TBN * n);
-}
-
-void main() {
-  vec3 faceNormal = normalize(cross(dFdx(vPosition), dFdy(vPosition)));
-  vec3 color = baseColor(vTexCoord);
-
-  vec3 c;
-  if (uShading == 0)
-    c = shadeSurface(vFlatPosition, faceNormal, color);
-  else if (uShading == 1)
-    c = vDiffuse * color + vSpecular;
-  else
-    c = shadeSurface(vPosition, perturbedNormal(normalize(vNormal), vTexCoord), color);
-
-  fragColor = vec4(c, 1.0);
-}
-`;
-
 // WebGL setup
 const canvas = document.getElementById("glcanvas");
 const gl = canvas.getContext("webgl2");
@@ -196,57 +23,6 @@ function createProgram(vsSource, fsSource) {
   return prog;
 }
 
-// Shader editors
-const vertEditor = document.getElementById("vertEditor");
-const fragEditor = document.getElementById("fragEditor");
-const shaderError = document.getElementById("shaderError");
-vertEditor.value = VERTEX_SHADER;
-fragEditor.value = FRAGMENT_SHADER;
-
-let program;
-
-const uniforms = {};
-
-function updateProgram() {
-  try {
-    const prog = createProgram(vertEditor.value, fragEditor.value);
-    gl.deleteProgram(program);
-    program = prog;
-    gl.useProgram(program);
-    uniforms["uModelView"] = gl.getUniformLocation(program, "uModelView");
-    uniforms["uProjection"] = gl.getUniformLocation(program, "uProjection");
-    uniforms["uLightPos"] = gl.getUniformLocation(program, "uLightPos[0]");
-    uniforms["uColor"] = gl.getUniformLocation(program, "uColor");
-
-    uniforms["uKa"] = gl.getUniformLocation(program, "uKa");
-    uniforms["uKd"] = gl.getUniformLocation(program, "uKd");
-    uniforms["uKs"] = gl.getUniformLocation(program, "uKs");
-    uniforms["uAlpha"] = gl.getUniformLocation(program, "uAlpha");
-
-    uniforms["uShading"] = gl.getUniformLocation(program, "uShading");
-    uniforms["uLightType"] = gl.getUniformLocation(program, "uLightType[0]");
-
-    uniforms["uSpotDir"] = gl.getUniformLocation(program, "uSpotDir[0]");
-    uniforms["uCutoff"] = gl.getUniformLocation(program, "uCutoff");
-    uniforms["uSpotExponent"] = gl.getUniformLocation(program, "uSpotExponent");
-
-    uniforms["uSpecularColor"] = gl.getUniformLocation(program, "uSpecularColor");
-    uniforms["uDiffuseColor"] = gl.getUniformLocation(program, "uDiffuseColor");
-    uniforms["uAmbientColor"] = gl.getUniformLocation(program, "uAmbientColor");
-    uniforms["uLightColor"] = gl.getUniformLocation(program, "uLightColor[0]");
-
-    uniforms["uMapping"] = gl.getUniformLocation(program, "uMapping");
-    uniforms["uPerturb"] = gl.getUniformLocation(program, "uPerturb");
-    gl.uniform1i(gl.getUniformLocation(program, "uTexture"), 0);  // texture unit 0
-
-    shaderError.textContent = "";
-  } catch (e) {
-    shaderError.textContent = e.message.replace(/\0/g, "");  // some drivers end the log with \0
-  }
-}
-updateProgram();
-vertEditor.addEventListener("input", updateProgram);
-fragEditor.addEventListener("input", updateProgram);
 
 function bindAttribute(name, data, size) {
   gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
@@ -261,30 +37,25 @@ function createMesh({ positions, normals, tangents, texCoords, indices }) {
   const vertices = positions.length / 3;
   bindAttribute("aPosition", positions, 3);
   bindAttribute("aNormal", normals, 3);
-  bindAttribute("aTangent", tangents ?? new Float32Array(Array(vertices).fill([1, 0, 0]).flat()), 3);
+  bindAttribute("aTangent", tangents ?? new Float32Array(vertices * 3), 3);
   bindAttribute("aTexCoord", texCoords ?? new Float32Array(vertices * 2), 2);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
   return { vao, count: indices.length };
 }
 
-gl.enable(gl.DEPTH_TEST);
-
-gl.clearColor(0.85, 0.86, 0.88, 1);
-
 const cubeMesh = createMesh(createCube());
 const cylinderMesh = createMesh(createCylinder(32));
 const sphereMesh = createMesh(createSphere(32));
-const coneMesh = createMesh(createCone(32));
-const tubeMesh = createMesh(createTorus(32));
+const torusMesh = createMesh(createTorus(32));
 const gearMesh = createMesh(createGear(12 * 16, 0.7));
-const floorMesh = createMesh(createGrid(100, 4));
-const wallMesh = createMesh(createGrid(100, 4, 2));
+const floorMesh = createMesh(createQuad(4));
+const wallMesh = createMesh(createQuad(4, 2));
 
 function loadTexture(url) {
   const texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 255, 255]));
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 255]));
 
   const image = new Image();
   image.onload = () => {
@@ -293,296 +64,196 @@ function loadTexture(url) {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
     gl.generateMipmap(gl.TEXTURE_2D);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
   };
   image.src = url;
   return texture;
 }
 
-const brickTexture = loadTexture("../textures/brick.png");
-const normalTexture = loadTexture("../textures/texture2.jpg");
-const wallTexture = loadTexture("../textures/wallpaper_tex.png");
-const floorTexture = loadTexture("../textures/floor.png");
-const ivoryTexture = loadTexture("../textures/ivory_polymer.png");
-const charcoalTexture = loadTexture("../textures/charcoal_polymer.png");
-const rubberTexture = loadTexture("../textures/black_rubber.png");
+const floorTexture = loadTexture("textures/floor.png");
+const wallTexture = loadTexture("textures/wallpaper_tex.png");
+const normalTexture = loadTexture("textures/texture2.jpg");
+const ivoryTexture = loadTexture("textures/ivory_polymer.png");
+const charcoalTexture = loadTexture("textures/charcoal_polymer.png");
+const rubberTexture = loadTexture("textures/black_rubber.png");
+const beachBallTexture = loadTexture("textures/beach_ball.png");
+const cubeHexagonTexture = loadTexture("textures/cube_hexagon.png");
 
 const videoElement = document.createElement("video");
-videoElement.src = "../textures/flintstones.mp4";
+videoElement.src = "textures/flintstones.mp4";
 videoElement.loop = true;
 videoElement.muted = true;
 videoElement.play();
 
 const videoTexture = gl.createTexture();
 gl.bindTexture(gl.TEXTURE_2D, videoTexture);
-gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 255, 255]));
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 255]));
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
 function updateVideoTexture() {
-  if (videoElement && videoElement.readyState >= videoElement.HAVE_CURRENT_DATA) {
+  if (videoElement.readyState >= videoElement.HAVE_CURRENT_DATA) {
     gl.bindTexture(gl.TEXTURE_2D, videoTexture);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, videoElement);
   }
 }
 
-const BUMP_MAPPING = 0, NORMAL_MAPPING = 1, NO_MAPPING = 2;
-
-
-
-
-const lightsTerms = {
-  Ka: 0.2, Kd: 0.8, Ks: 0.5, Alpha: 32.0
-};
+const NO_MAPPING = 0, TEXTURE_MAPPING = 1, REFLECTIVE_MAPPING = 2, BUMP_MAPPING = 3, NORMAL_MAPPING = 4;
 
 const materials = {
-  default: {
-    Ka: 0.2, Kd: 0.8, Ks: 0.5, Alpha: 32.0,
-    AmbientColor:  [1, 1, 1],
-    DiffuseColor:  [1, 1, 1],
-    SpecularColor: [1, 1, 1],
-  },
-
-  ivory: {
-    Ka: 0.75, Kd: 0.60, Ks: 0.10, Alpha: 12,
-    AmbientColor:  [1, 1, 1],
-    DiffuseColor:  [1, 1, 1],
-    SpecularColor: [1, 1, 1],
-    texture: ivoryTexture,
-  },
-
-  charcoal: {
-    Ka: 0.20, Kd: 0.75, Ks: 0.45, Alpha: 60,
-    AmbientColor:  [1, 1, 1],
-    DiffuseColor:  [1, 1, 1],
-    SpecularColor: [1, 1, 1],
-    texture: charcoalTexture,
-  },
-
-  copper: {
-    Ka: 0.30, Kd: 0.70, Ks: 0.60, Alpha: 40,
-    AmbientColor:  [0.78, 0.26, 0.18],
-    DiffuseColor:  [0.78, 0.26, 0.18],
-    SpecularColor: [1.00, 0.80, 0.70],
-  },
-
-  brass: {
-    Ka: 0.25, Kd: 0.65, Ks: 0.70, Alpha: 60,
-    AmbientColor:  [0.75, 0.60, 0.22],
-    DiffuseColor:  [0.75, 0.60, 0.22],
-    SpecularColor: [1.00, 0.95, 0.80],
-  },
-
-  rubber: {
-    Ka: 0.10, Kd: 0.70, Ks: 0.05, Alpha: 8,
-    AmbientColor:  [1, 1, 1],
-    DiffuseColor:  [1, 1, 1],
-    SpecularColor: [1, 1, 1],
-    texture: rubberTexture,
-  },
-
-  floor: {
-    Ka: 0.30, Kd: 0.85, Ks: 0.10, Alpha: 16,
-    AmbientColor:  [1.00, 1.00, 1.00],
-    DiffuseColor:  [1.00, 1.00, 1.00],
-    SpecularColor: [0.80, 0.85, 0.90],
-  },
-
-  wall: {
-    Ka: 0.40, Kd: 0.80, Ks: 0.02, Alpha: 8,
-    AmbientColor:  [1.00, 1.00, 1.00],
-    DiffuseColor:  [1.00, 1.00, 1.00],
-    SpecularColor: [0.50, 0.50, 0.50],
-  },
+  default:  { Ka: 0.20, Kd: 0.80, Ks: 0.50, shininess: 32, },
+  ivory:    { Ka: 0.75, Kd: 0.60, Ks: 0.10, shininess: 12, texture: ivoryTexture },
+  charcoal: { Ka: 0.20, Kd: 0.75, Ks: 0.45, shininess: 60, texture: charcoalTexture },
+  rubber:   { Ka: 0.10, Kd: 0.70, Ks: 0.05, shininess: 8, texture: rubberTexture },
+  copper:   { Ka: 0.30, Kd: 0.70, Ks: 0.60, shininess: 40, color: [0.78, 0.26, 0.18] },
+  brass:    { Ka: 0.25, Kd: 0.65, Ks: 0.70, shininess: 60, color: [0.75, 0.60, 0.22] },
+  floor:    { Ka: 0.30, Kd: 0.85, Ks: 0.10, shininess: 16, },
+  wall:     { Ka: 0.40, Kd: 0.80, Ks: 0.02, shininess: 8, },
+  beachBall: { Ka: 0.40, Kd: 0.80, Ks: 0.30, shininess: 32 },
+  cubeHexagon: { Ka: 0.20, Kd: 0.80, Ks: 0.50, shininess: 32, texture: cubeHexagonTexture },
+  window:    { Ka: 0.40, Kd: 0.80, Ks: 0.02, shininess: 8, uAlpha: 0.2,  },
 };
-const spotLightTerms = {
-  Cutoff: Math.cos(Math.PI / 4), SpotExponent: 0.0,
-};
-let ambientLevel = 1;
-const BACKGROUND = [0.7, 0.7, 0.7];
 
-
-function armObject(name, mesh, material, position, size) {
-  return {
-    name,
-    mesh,
-    material,
-    color: [1, 1, 1],
-    shape: multiply(
-      translate.apply(null, position),
-      scale.apply(null, size)
-    )
-  };
+for (const material of Object.values(materials)) {
+    material.uAlpha ??= 1.0;    // opaque default
 }
-
-function lightObject(name, position, spotDir = [0, -1, 0], color = [1, 1, 1], type = "point") {
-  return {
-    name,
-    joint: translate.apply(null, position),
-    light: { color, gain: 1, position, spotDir: normalize(spotDir), type }
-  };
-}
-
-function component(name, mesh, material) {
-  const transforms = Array.prototype.slice.call(arguments, 3);
-  return { name, mesh, material, color: [1, 1, 1], shape: multiply.apply(null, transforms) };
+ 
+function node(name, mesh, material, ...transforms) {
+  return { name, mesh, material, shape: multiply(...transforms) };
 }
 
 function textured(node, texture, mapping = BUMP_MAPPING) {
   return Object.assign(node, { texture, mapping });
 }
 
+function light(name, position, color = [1, 1, 1], spotDir = null) {
+  const cutoff = spotDir ? Math.cos(Math.PI / 4) : -1;
+  return { name, joint: translate(...position), light: { color, spotDir: normalize(spotDir ?? [0, -1, 0]), cutoff } };
+}
+
 function segment(name, length, radius, [startClear, endClear]) {
-  const collar = (suffix, y) => armObject(`${name}_${suffix}`, cylinderMesh, "charcoal", [0, y, 0], [radius + 0.02, 0.07, radius + 0.02]);
+  const collar = (suffix, y) => node(`${name}_${suffix}`, cylinderMesh, "charcoal", translate(0, y, 0), scale(radius + 0.02, 0.07, radius + 0.02));
   return [
-    armObject(name, cylinderMesh, "ivory", [0, length / 2, 0], [radius, length / 2, radius]),
+    node(name, cylinderMesh, "ivory", translate(0, length / 2, 0), scale(radius, length / 2, radius)),
     collar("collar_0", startClear + 0.09),
     collar("collar_1", length - endClear - 0.09),
   ];
 }
 
-function jointObject(name, radius) {
+function jointRings(name, radius) {
   const half = radius * 0.55;
   const axis = rotateX(Math.PI / 2);
-  return [
-    component(`${name}_band`, cylinderMesh, "ivory", axis, scale(radius, half, radius))
-  ].concat([-1, 1].flatMap(side => [
-      component(`${name}_rim_${side}`, tubeMesh, "charcoal", translate(0, 0, side * half), axis, scale(radius * 0.84, radius * 0.84, radius * 0.84)),
-      component(`${name}_cap_${side}`, cylinderMesh, "ivory", translate(0, 0, side * (half + radius * 0.12)), axis, scale(radius * 0.84, radius * 0.10, radius * 0.84)),
-      component(`${name}_seam_${side}`, cylinderMesh, "charcoal", translate(0, 0, side * (half + radius * 0.23)), axis, scale(radius * 0.68, radius * 0.02, radius * 0.68)),
-      component(`${name}_hub_${side}`, cylinderMesh, "charcoal", translate(0, 0, side * (half + radius * 0.26)), axis, scale(radius * 0.54, radius * 0.04, radius * 0.54)),
-    ]));
+  return [node(`${name}_band`, cylinderMesh, "ivory", axis, scale(radius, half, radius))].concat([-1, 1].flatMap(side => [
+    node(`${name}_rim_${side}`, torusMesh, "charcoal", translate(0, 0, side * half), axis, scale(radius * 0.84, radius * 0.84, radius * 0.84)),
+    node(`${name}_cap_${side}`, cylinderMesh, "ivory", translate(0, 0, side * (half + radius * 0.12)), axis, scale(radius * 0.84, radius * 0.10, radius * 0.84)),
+    node(`${name}_seam_${side}`, cylinderMesh, "charcoal", translate(0, 0, side * (half + radius * 0.23)), axis, scale(radius * 0.68, radius * 0.02, radius * 0.68)),
+    node(`${name}_hub_${side}`, cylinderMesh, "charcoal", translate(0, 0, side * (half + radius * 0.26)), axis, scale(radius * 0.54, radius * 0.04, radius * 0.54)),
+  ]));
 }
 
 const upperLength = 2.4;
 const foreLength = 2.0;
 
-const startPose = {
-  basePivot: 0,
-  shoulderPivot: -30,
-  elbowPivot: -80,
-  wristPivot: -70,
-  gripperPivot: 0,
-  fingerPivotLeft: -8,  fingerPivotRight: 8,
-  fingerTipPivotLeft: -12, fingerTipPivotRight: 12,
-};
-
-const camera = { name: "camera" };
-
 const scene = {
   name: "scene",
   children: [
-    textured(component("floor", floorMesh, "floor", translate(0, -1.9, 0), scale(8, 1, 8)), floorTexture),
-    textured(component("backWall", wallMesh, "wall", translate(0, 2.1, -8), rotateX(Math.PI / 2), scale(8, 1, 4)), wallTexture),
-    textured(component("leftWall", wallMesh, "wall", translate(-8, 2.1, 0), rotateZ(-Math.PI / 2), rotateY(Math.PI / 2), scale(8, 1, 4)), wallTexture),
+    textured(node("floor", floorMesh, "floor", translate(0, -1.9, 0), scale(8, 1, 8)), floorTexture),
+    textured(node("backWall", wallMesh, "wall", translate(0, 2.1, -8), rotateX(Math.PI / 2), scale(8, 1, 4)), wallTexture),
+    textured(node("leftWall", wallMesh, "wall", translate(-8, 2.1, 0), rotateZ(-Math.PI / 2), rotateY(Math.PI / 2), scale(8, 1, 4)), wallTexture),
 
-    // textured(component("brickCube", cubeMesh, "default", translate(-4.4, -1.2, 1.8), scale(0.7, 0.7, 0.7)), brickTexture),
-    textured(component("brickCube", cubeMesh, "default", translate(4.4, 3, -8.5), scale(0.7, 0.7, 0.6)), videoTexture),
-    textured(component("normalCylinder", cylinderMesh, "brass", translate(4.8, -1.1, 0.6), scale(0.6, 0.8, 0.6)), normalTexture, NORMAL_MAPPING),
-    textured(component("videoSphere", sphereMesh, "default", translate(3.8, -1.1, 2.8), scale(0.8, 0.8, 0.8)), videoTexture),
+    textured(node("screen", cubeMesh, "default", translate(4.4, 3, -8.5), scale(0.7, 0.7, 0.6)), videoTexture),
 
-    {
-      name: "gear",
-      joint: translate(1.2, -1.81, 1.6),
-      mesh: gearMesh,
-      material: "copper",
-      color: [1, 1, 1],
-      shape: scale(0.6, 0.6, 0.6)
-    },
 
-    lightObject("ceilingLight", [0, 4, 0]),
-    lightObject("sideLight", [2.5, 1.5, 1]),
-    lightObject("backLight", [-4, 3.5, -2.5]),
-    lightObject("frontLight", [3, 2.5, 8], [0.1, -0.45, -0.9], [1, 1, 1], "spot"),
+
+    textured(node("window", cubeMesh, "cubeHexagon", translate(-2.4, 3, -8.5), scale(2, 2, 0.6))),
+
+
+    // Window "glass"
+    textured(node("window", cubeMesh, "window", translate(-3.25, 2.1, -8.5), scale(0.8, 0.8, 0.7))),
+    textured(node("window", cubeMesh, "window", translate(-1.50, 2.1, -8.5), scale(0.8, 0.8, 0.7))),
+    textured(node("window", cubeMesh, "window", translate(-3.25, 3.9, -8.5), scale(0.8, 0.8, 0.7))),
+    textured(node("window", cubeMesh, "window", translate(-1.50, 3.9, -8.5), scale(0.8, 0.8, 0.7))),
+
+    textured(node("sun", sphereMesh, "beachBall", translate(-1.50, 3.9, -20), scale(0.8, 0.8, 0.8)), beachBallTexture, TEXTURE_MAPPING),
+
+    light("windowLight", [-3.25, 2.1, -8.5], [1, 2, .4], [0, -1, 1]),
+
+    node("cube1", cubeMesh, "cubeHexagon", translate(4, -1.6, 1.6), scale(0.2, 0.2, 0.2)),
+
+
+    textured(node("normalCylinder", cylinderMesh, "brass", translate(4.8, -1.1, 0.6), scale(0.6, 0.8, 0.6)), normalTexture, NORMAL_MAPPING),
+    textured(node("ball", sphereMesh, "beachBall", translate(3.8, -1.1, 2.8), scale(0.8, 0.8, 0.8)), beachBallTexture, TEXTURE_MAPPING),
+
+    node("gear", gearMesh, "copper", translate(1.2, -1.81, 1.6), scale(0.6, 0.6, 0.6)),
+
+    node("cube1", cubeMesh, "cubeHexagon", translate(4, -1.6, 1.6), scale(0.2, 0.2, 0.2)),
+
+    light("ceilingLight", [0, 4, 0]),
+    light("sideLight", [2.5, 1.5, 1]),
+    light("backLight", [-4, 3.5, -2.5]),
+    light("frontLight", [3, 2.5, 8], [1, 1, 1], [0.1, -0.45, -0.9]),
+    light("floorLight", [3.8, -1.9, 4.0], [0.3, 0.3, 0.3]),
 
     {
       name: "Gen-Mini",
       joint: multiply(translate(-1.6, -1.9, 0), scale(0.5, 0.5, 0.5)),
       children: [
-        armObject("base", cylinderMesh, "ivory", [0, 0.35, 0], [0.60, 0.35, 0.60]),
-        component("baseFoot", tubeMesh, "charcoal", translate(0, 0.145, 0), scale(0.58, 0.58, 0.58)),
-        component("baseSeam", cylinderMesh, "charcoal", translate(0, 0.685, 0), scale(0.61, 0.015, 0.61)),
-
+        node("base", cylinderMesh, "ivory", translate(0, 0.35, 0), scale(0.60, 0.35, 0.60)),
+        node("baseFoot", torusMesh, "charcoal", translate(0, 0.145, 0), scale(0.58, 0.58, 0.58)),
+        node("baseSeam", cylinderMesh, "charcoal", translate(0, 0.685, 0), scale(0.61, 0.015, 0.61)),
         {
           name: "basePivot",
           joint: translate(0, 0.70, 0),
           children: [
-            armObject(
-              "baseCollar",
-              cylinderMesh,
-              "charcoal",
-              [0, 0.15, 0],
-              [0.43, 0.15, 0.43]
-            ),
-
+            node("baseCollar", cylinderMesh, "charcoal", translate(0, 0.15, 0), scale(0.43, 0.15, 0.43)),
             {
               name: "shoulderPivot",
               joint: translate(0, 0.40, 0),
-              children: [].concat(
-                jointObject("shoulder", 0.43),
-
-                segment("upperArm", upperLength, 0.22, [0.43, 0.39]),
-
+              children: [
+                ...jointRings("shoulder", 0.43),
+                ...segment("upperArm", upperLength, 0.22, [0.43, 0.39]),
                 {
                   name: "elbowPivot",
                   joint: translate(0, upperLength, 0),
-                  children: [].concat(
-                    jointObject("elbow", 0.39),
-
-                    segment("forearm", foreLength, 0.19, [0.39, 0.30]),
-
+                  children: [
+                    ...jointRings("elbow", 0.39),
+                    ...segment("forearm", foreLength, 0.19, [0.39, 0.30]),
                     {
                       name: "wristPivot",
                       joint: translate(0, foreLength, 0),
-                      children: [].concat(
-                        jointObject("wrist", 0.30),
-
-                        armObject("wristCollar", cylinderMesh, "charcoal", [0, 0.34, 0], [0.24, 0.16, 0.24]),
-                        armObject("wristCamera", cubeMesh, "charcoal", [0, 0.36, 0.28], [0.11, 0.09, 0.07]),
-                        armObject("wristLens", sphereMesh, "charcoal", [0, 0.46, 0.28], [0.04, 0.04, 0.04]),
-
+                      children: [
+                        ...jointRings("wrist", 0.30),
+                        node("wristCollar", cylinderMesh, "charcoal", translate(0, 0.34, 0), scale(0.24, 0.16, 0.24)),
+                        node("wristCamera", cubeMesh, "charcoal", translate(0, 0.36, 0.28), scale(0.11, 0.09, 0.07)),
+                        node("wristLens", sphereMesh, "charcoal", translate(0, 0.46, 0.28), scale(0.04, 0.04, 0.04)),
                         {
                           name: "gripperPivot",
                           joint: translate(0, 0.50, 0),
-                          children: [].concat(
-                            armObject("gripperPalm", cubeMesh, "charcoal", [0, 0.13, 0], [0.34, 0.13, 0.22]),
-
-                            lightObject("gripperLight", [0, 0.13, 0.26], [0, 1, 0], [1, 0, 0], "spot"),
-
-                            [["Left", -1], ["Right", 1]].map(([hand, side]) => ({
+                          children: [
+                            node("gripperPalm", cubeMesh, "charcoal", translate(0, 0.13, 0), scale(0.34, 0.13, 0.22)),
+                            light("gripperLight", [0, 0.13, 0.26], [1, 0, 0], [0, 1, 0]),
+                            ...[["Left", -1], ["Right", 1]].map(([hand, side]) => ({
                               name: `fingerPivot${hand}`,
                               joint: translate(side * 0.25, 0.26, 0),
                               children: [
-                                armObject(
-                                  `fingerUpper${hand}`,
-                                  cubeMesh,
-                                  "ivory",
-                                  [0, 0.17, 0],
-                                  [0.075, 0.17, 0.10]
-                                ),
-
+                                node(`fingerUpper${hand}`, cubeMesh, "ivory", translate(0, 0.17, 0), scale(0.075, 0.17, 0.10)),
                                 {
                                   name: `fingerTipPivot${hand}`,
                                   joint: translate(0, 0.34, 0),
                                   children: [
-                                    armObject(
-                                      `fingerTip${hand}`,
-                                      cubeMesh,
-                                      "rubber",
-                                      [0, 0.13, 0],
-                                      [0.075, 0.13, 0.10]
-                                    )
+                                    node(`fingerTip${hand}`, cubeMesh, "rubber", translate(0, 0.13, 0), scale(0.075, 0.13, 0.10))
                                   ]
                                 }
                               ]
                             }))
-                          )
+                          ]
                         }
-                      )
+                      ]
                     }
-                  )
+                  ]
                 }
-              )
+              ]
             }
           ]
         }
@@ -591,20 +262,160 @@ const scene = {
   ]
 };
 
-
-function indexNodes(node, byName = {}, parent = null) {
+function indexNodes(node, byName = {}) {
   node.pose = node.joint ?? identity();
-  node.parent = parent;
-  
-  if (node.name) {
-    if (byName[node.name]) console.warn(`duplicate node name: ${node.name}`);
-    byName[node.name] = node;
-  }
-  for (const child of node.children ?? []) indexNodes(child, byName, node);
+  if (node.name) byName[node.name] = node;
+  for (const child of node.children ?? []) indexNodes(child, byName);
   return byName;
 }
-const root = { name: "root", children: [camera, scene] };
-const nodes = indexNodes(root);
+const nodes = indexNodes(scene);
+const lightNodes = Object.values(nodes).filter(node => node.light);
+
+const VERTEX_SHADER = `#version 300 es
+in vec3 aPosition;
+in vec3 aNormal;
+in vec3 aTangent;
+in vec2 aTexCoord;
+
+uniform mat4 uModelView;
+uniform mat4 uProjection;
+
+out vec3 vPosition;
+out vec3 vNormal;
+out vec3 vTangent;
+out vec3 vBitangent;
+out vec2 vTexCoord;
+
+void main() {
+  vec4 p = uModelView * vec4(aPosition, 1.0);
+  vPosition = p.xyz;
+  // Inverse transpose for potential non-uniform scalings
+  mat3 mv = mat3(uModelView);
+  vNormal = transpose(inverse(mv)) * aNormal;
+  vTangent = mv * aTangent;
+  vBitangent = cross(vNormal, vTangent);
+  vTexCoord = aTexCoord;
+  gl_Position = uProjection * p;
+}
+`;
+
+const FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+const int NUM_LIGHTS = ${lightNodes.length};
+const int NO_MAPPING = ${NO_MAPPING}, 
+          TEXTURE_MAPPING = ${TEXTURE_MAPPING}, 
+          REFLECTIVE_MAPPING = ${REFLECTIVE_MAPPING},
+          BUMP_MAPPING = ${BUMP_MAPPING},
+          NORMAL_MAPPING = ${NORMAL_MAPPING};
+const float bumpStrength = 3.0;
+
+in vec3 vPosition;
+in vec3 vNormal;
+in vec3 vTangent;
+in vec3 vBitangent;
+in vec2 vTexCoord;
+
+uniform vec3 uLightPos[NUM_LIGHTS];   // eye space
+uniform vec3 uLightColor[NUM_LIGHTS];
+uniform vec3 uSpotDir[NUM_LIGHTS];
+uniform float uCutoff[NUM_LIGHTS];
+
+uniform vec3 uColor;
+uniform float uKa;
+uniform float uKd;
+uniform float uKs;
+uniform float uShininess;
+uniform float uAlpha;
+
+uniform sampler2D uTexture;
+uniform int uMapping;
+
+out vec4 fragColor;
+
+float height(vec2 uv) {
+  return dot(texture(uTexture, uv).rgb, vec3(0.299, 0.587, 0.114));
+}
+
+vec3 perturbedNormal(vec3 N) {
+  if (uMapping != BUMP_MAPPING && uMapping != NORMAL_MAPPING) return N;
+  mat3 TBN = mat3(normalize(vTangent), normalize(vBitangent), N);
+  if (uMapping == NORMAL_MAPPING) {
+    vec3 tangentNormal = texture(uTexture, vTexCoord).rgb * 2.0 - 1.0;
+    return normalize(TBN * tangentNormal);
+  }
+  else if (uMapping == REFLECTIVE_MAPPING) {
+    
+  }
+  vec2 texel = 1.0 / vec2(textureSize(uTexture, 0));
+  float h = height(vTexCoord);
+  float hu = height(vTexCoord + vec2(texel.x, 0.0));
+  float hv = height(vTexCoord + vec2(0.0, texel.y));
+  vec3 bumpNormal = vec3((hu - h) * bumpStrength, (hv - h) * bumpStrength, 1.0);
+  return normalize(TBN * bumpNormal);
+}
+
+vec3 calculateLight(int i, vec3 N, vec3 V, vec3 color) {
+  vec3 L = normalize(uLightPos[i] - vPosition);
+  vec3 R = reflect(-L, N);
+  float diff = max(dot(N, L), 0.0);
+  float spec = pow(max(dot(V, R), 0.0), uShininess);
+
+  float d = length(uLightPos[i] - vPosition);
+  float attenuation = 1.0 / (1.0 + 0.09 * d + 0.032 * d * d);
+  float spot = step(uCutoff[i], dot(-L, uSpotDir[i]));
+
+  return spot * attenuation * uLightColor[i] * (uKd * diff * color + uKs * spec);
+}
+
+void main() {
+  vec3 color = uMapping == TEXTURE_MAPPING || uMapping == BUMP_MAPPING ? uColor * texture(uTexture, vTexCoord).rgb : uColor;
+  vec3 N = perturbedNormal(normalize(vNormal));
+  vec3 V = normalize(-vPosition);           // camera sits at the origin
+
+  vec3 result = uKa * color;
+  for (int i = 0; i < NUM_LIGHTS; i++) result += calculateLight(i, N, V, color);
+  fragColor = vec4(result, uAlpha);
+}
+`;
+
+// Shader editors
+const vertEditor = document.getElementById("vertEditor");
+const fragEditor = document.getElementById("fragEditor");
+const shaderError = document.getElementById("shaderError");
+vertEditor.value = VERTEX_SHADER;
+fragEditor.value = FRAGMENT_SHADER;
+
+const UNIFORMS = ["uModelView", "uProjection", "uLightPos", "uLightColor", "uSpotDir", "uCutoff",
+                  "uColor", "uKa", "uKd", "uKs", "uShininess",  "uMapping", "uAlpha", "uTexture"];
+let program;
+const uniforms = {};
+
+function updateProgram() {
+  try {
+    const prog = createProgram(vertEditor.value, fragEditor.value);
+    gl.deleteProgram(program);
+    program = prog;
+    gl.useProgram(program);
+    for (const name of UNIFORMS) uniforms[name] = gl.getUniformLocation(program, name);
+    gl.uniform1i(uniforms["uTexture"], 0);  // texture unit 0
+    shaderError.textContent = "";
+  } catch (e) {
+    shaderError.textContent = e.message.replace(/\0/g, "");  // some drivers end the log with \0
+  }
+}
+updateProgram();
+vertEditor.addEventListener("input", updateProgram);
+fragEditor.addEventListener("input", updateProgram);
+
+function updateFrames(root, rootFrame) {
+  const stack = [[root, rootFrame]];
+  while (stack.length > 0) {
+    const [node, parentFrame] = stack.pop();
+    node.frame = multiply(parentFrame, node.pose);
+    for (const child of node.children ?? []) stack.push([child, node.frame]);
+  }
+}
 
 const JOINTS = {
   basePivot: rotateY,
@@ -618,228 +429,59 @@ const JOINTS = {
   fingerTipPivotRight: rotateZ,
 };
 
-const currentAngles = {};
-
-function setJoint(name, degrees) {
-  currentAngles[name] = degrees;
-  nodes[name].pose = multiply(nodes[name].joint, JOINTS[name](rad(degrees)));
-  document.getElementById(name).value = degrees;
-  document.getElementById(name + "Value").textContent = Math.round(degrees) + "°";
-}
-
-const animationQueue = [];
-
-function clearQueue() {
-  const kept = animationQueue.filter(step => step.keep);
-  animationQueue.length = 0;
-  animationQueue.push(...kept);
-}
-
-function animate(targets, duration = 0.5) {
-  animationQueue.push({ targets, duration, elapsed: 0, start: null });
-}
-
-function advanceAnimations(dt) {
-  const step = animationQueue[0];
-  if (!step) return;
-  if (!step.start) step.start = { ...currentAngles };
-  step.elapsed += dt;
-  const p = step.duration > 0 ? Math.min(step.elapsed / step.duration, 1) : 1;
-  const eased = p * p * (3 - 2 * p);
-  for (const [name, target] of Object.entries(step.targets)) {
-    const start = step.start[name];
-    setJoint(name, p === 1 ? target : start + (target - start) * eased);
-  }
-  step.update?.(p);
-  if (p === 1) {
-    animationQueue.shift();
-    step.done?.();
-  }
-}
-
-for (const name in JOINTS) {
-  setJoint(name, startPose[name]);
-  document.getElementById(name).addEventListener("input", e => {
-    clearQueue();
-    setJoint(name, Number(e.target.value));
-  });
-}
+const startPose = {
+  basePivot: 0, shoulderPivot: -30, elbowPivot: -80, wristPivot: -70, gripperPivot: 0,
+  fingerPivotLeft: -8, fingerPivotRight: 8, fingerTipPivotLeft: -12, fingerTipPivotRight: 12,
+};
 
 const GRIPPER_POSES = {
   open:   { fingerPivotLeft: 15,  fingerPivotRight: -15, fingerTipPivotLeft: 0,   fingerTipPivotRight: 0 },
   closed: { fingerPivotLeft: -10, fingerPivotRight: 10,  fingerTipPivotLeft: -15, fingerTipPivotRight: 15 },
 };
+
+const currentAngles = {};
+
+function setJoint(name, degrees) {
+  currentAngles[name] = degrees;
+  nodes[name].pose = multiply(nodes[name].joint, JOINTS[name](rad(degrees)));
+}
+for (const name in JOINTS) setJoint(name, startPose[name]);
+
+let animation = null;
+
+function animate(targets, duration) {
+  animation = { targets, duration, elapsed: 0, start: { ...currentAngles } };
+}
+
+function advanceAnimation(dt) {
+  if (!animation) return;
+  animation.elapsed += dt;
+  const p = Math.min(animation.elapsed / animation.duration, 1);
+  const eased = p * p * (3 - 2 * p);
+  for (const name in animation.targets) setJoint(name, animation.start[name] + (animation.targets[name] - animation.start[name]) * eased);
+  if (p === 1) animation = null;
+}
+
 let gripperOpen = false;
 const gripperButton = document.getElementById("gripperButton");
-
-function gripper(open) {
-  gripperOpen = open;
-  gripperButton.textContent = open ? "Close Gripper" : "Open Gripper";
-  return GRIPPER_POSES[open ? "open" : "closed"];
-}
-
-const gearHeld = () => nodes.gear.parent === nodes.gripperPivot;
-
 gripperButton.addEventListener("click", () => {
-  clearQueue();
-  if (gearHeld()) dropGear();
-  else animationQueue.push({ targets: gripper(!gripperOpen), duration: 0.5, elapsed: 0, start: null });
+  gripperOpen = !gripperOpen;
+  gripperButton.textContent = gripperOpen ? "Close Gripper" : "Open Gripper";
+  animate(GRIPPER_POSES[gripperOpen ? "open" : "closed"], 0.5);
 });
 
-const ARM_POSES = {
-  compressed: { shoulderPivot: -70, elbowPivot: 130, wristPivot: -130 },
-  extended:   { shoulderPivot: 0,   elbowPivot: 0,   wristPivot: 0 },
-};
-document.getElementById("armButton").addEventListener("click", () => {
-  clearQueue();
-  animationQueue.push({ targets: ARM_POSES.compressed, duration: 1.0, elapsed: 0, start: null });
-  animationQueue.push({ targets: ARM_POSES.extended, duration: 1.5, elapsed: 0, start: null });
-});
+gl.enable(gl.DEPTH_TEST);
 
-const deg = radians => radians * 180 / Math.PI;
-const FLOOR_Y = -1.9;
-const GEAR_RADIUS = 0.6 * 1.15;
-const GEAR_THICKNESS = 0.6 * 0.3;
 
-function reparent(node, parent) {
-  updateFrames(scene, identity());
-  node.parent.children.splice(node.parent.children.indexOf(node), 1);
-  parent.children.push(node);
-  node.joint = node.pose = multiply(rigidInverse(parent.frame), node.frame);
-  node.parent = parent;
-}
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-function armPose(d, h) {
-  const reach = Math.min(Math.max(Math.hypot(d, h), upperLength - foreLength + 0.01), upperLength + foreLength - 0.01);
-  const elbow = -Math.acos((reach * reach - upperLength ** 2 - foreLength ** 2) / (2 * upperLength * foreLength));
-  const shoulder = Math.atan2(-d, h) - Math.atan2(foreLength * Math.sin(elbow), upperLength + foreLength * Math.cos(elbow));
-  return { shoulderPivot: deg(shoulder), elbowPivot: deg(elbow), wristPivot: -180 - deg(shoulder) - deg(elbow) };
-}
+gl.clearColor(0.53, 0.81, 0.92, 1);
+const projection = perspective(Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
 
-const gearButton = document.getElementById("gearButton");
-
-function pickUpGear() {
-  updateFrames(scene, identity());
-  const m = multiply(rigidInverse(nodes["Gen-Mini"].frame), nodes.gear.frame);
-  const [gx, gy, gz] = [m[12], m[13], m[14]];
-  const d = Math.hypot(gx, gz);
-  const hover = armPose(d, gy + 1.19);
-  const grasp = armPose(d, gy + 0.19);
-  animationQueue.push({ targets: { basePivot: deg(Math.atan2(-gz, gx)), ...hover, ...gripper(false) }, duration: 1.2, elapsed: 0, start: null });
-  animationQueue.push({ targets: grasp, duration: 0.6, elapsed: 0, start: null });
-  animationQueue.push({ targets: gripper(true), duration: 0.3, elapsed: 0, start: null, done: () => {
-    updateFrames(scene, identity());
-    const tip = multiply(rigidInverse(nodes.gear.frame), nodes.fingerTipPivotRight.frame);
-    if (Math.hypot(tip[12], tip[14]) > 0.42 || Math.abs(tip[13]) > 0.5) return;
-    reparent(nodes.gear, nodes.gripperPivot);
-    gearButton.textContent = "Drop Gear";
-  } });
-  animationQueue.push({ targets: hover, duration: 0.6, elapsed: 0, start: null });
-}
-
-function dropGear() {
-  animationQueue.push({ targets: gripper(false), duration: 0.3, elapsed: 0, start: null, done: () => {
-    reparent(nodes.gear, scene);
-    gearButton.textContent = "Pick Up Gear";
-    settleGear();
-  } });
-}
-
-function settleGear() {
-  const gear = nodes.gear, m = gear.joint;
-  const [sx, sy, sz] = [m[12], m[13], m[14]];
-  const [bx, bz] = [nodes["Gen-Mini"].joint[12], nodes["Gen-Mini"].joint[14]];
-  const d = Math.hypot(sx - bx, sz - bz);
-  updateFrames(scene, identity());
-  const base = multiply(rigidInverse(scene.frame), nodes.basePivot.frame);
-  const away = d > 1e-3 ? [(sx - bx) / d, (sz - bz) / d] : [base[0], base[2]];
-  const [lx, lz] = d < 1.4 ? [bx + away[0] * 1.4, bz + away[1] * 1.4] : [sx, sz];
-  const spin = new Float32Array(m);
-  spin[12] = spin[13] = spin[14] = 0;
-  const axis = m[5] < 0 ? [-m[4], -m[5], -m[6]] : [m[4], m[5], m[6]];
-  const tilt = Math.acos(Math.min(axis[1], 1));
-  const side = cross(axis, [0, 1, 0]);
-  const k = normalize(Math.hypot(...side) > 1e-3 ? side : [m[8], m[9], m[10]]);
-  const rest = tau => FLOOR_Y + GEAR_RADIUS * Math.abs(Math.sin(tau)) + GEAR_THICKNESS / 2 * Math.abs(Math.cos(tau));
-  const height = Math.max(sy - rest(tilt), 0);
-  const wobble = 0.3 * Math.min(height, 1);
-  const place = (tau, [x, y, z]) => { gear.joint = gear.pose = multiply(translate(x, y, z), rotateAxis(k, tilt - tau), spin); };
-  animationQueue.push({ keep: true, targets: {}, duration: Math.sqrt(height / 5), elapsed: 0, start: null, update: p => place(tilt, [sx + (lx - sx) * p, sy - height * p * p, sz + (lz - sz) * p]) });
-  animationQueue.push({ keep: true, targets: {}, duration: 1.5, elapsed: 0, start: null, update: p => {
-    const phase = 2 * Math.PI * (2 * p + 5 * p * p);
-    const tau = (tilt * Math.cos(phase) + wobble * Math.sin(phase)) * (1 - p) * Math.exp(-3 * p);
-    place(tau, [lx, rest(tau), lz]);
-  } });
-}
-
-gearButton.addEventListener("click", () => {
-  clearQueue();
-  if (gearHeld()) dropGear();
-  else pickUpGear();
-});
-
-const materialControls = document.getElementById("materialControls");
-const byMaterial = name => Object.values(nodes).filter(node => node.material === name);
-
-const OBJECTS = {
-  "Segments": byMaterial("ivory"),
-  "Joints": byMaterial("charcoal"),
-  "Pads": byMaterial("rubber"),
-  "Gear": [nodes.gear],
-  "Floor": [nodes.floor],
-  "Walls": [nodes.backWall, nodes.leftWall],
-  "Props": [nodes.brickCube, nodes.normalCylinder, nodes.videoSphere],
-};
-
-for (const [label, members] of Object.entries(OBJECTS)) {
-  const row = document.createElement("div");
-  row.className = "control-row";
-  row.innerHTML = `<label>${label}:</label><select></select><input type="range" min="1" max="200" step="1"><span></span>`;
-  const select = row.querySelector("select"), slider = row.querySelector("input"), value = row.querySelector("span");
-  for (const name of Object.keys(materials)) select.add(new Option(name, name));
-  const showShininess = alpha => {
-    slider.value = alpha;
-    value.textContent = alpha;
-  };
-  const initial = members[0].material;
-  select.value = initial;
-  showShininess(materials[initial].Alpha);
-  select.addEventListener("input", () => {
-    const name = select.value === "default" ? initial : select.value;
-    for (const node of members) {
-      node.material = name;
-      delete node.alpha;
-    }
-    showShininess(materials[name].Alpha);
-  });
-  slider.addEventListener("input", () => {
-    for (const node of members) node.alpha = Number(slider.value);
-    value.textContent = slider.value;
-  });
-  materialControls.appendChild(row);
-}
-
-const lightNodes = Object.values(nodes).filter(node => node.light);
-const lightingControls = document.getElementById("lightingControls");
-for (const node of lightNodes) {
-  const row = document.createElement("div");
-  row.className = "control-row";
-  row.innerHTML = `<label>${node.name}:</label><div class="option-bubbles"></div>`;
-  const bubbles = row.querySelector(".option-bubbles");
-  for (const [value, text] of [["point", "Point"], ["spot", "Spotlight"]]) {
-    const id = `lighting_${node.name}_${value}`;
-    const radio = Object.assign(document.createElement("input"), { type: "radio", id, name: `lighting_${node.name}`, value, checked: node.light.type === value });
-    const label = Object.assign(document.createElement("label"), { htmlFor: id, textContent: text });
-    radio.addEventListener("change", () => { node.light.type = value; });
-    bubbles.append(radio, label);
-  }
-  lightingControls.appendChild(row);
-}
-
+// Interactive controls
 let dragRotX = 0.28, dragRotY = 0.5;    // mouse drag
-
-let camX = 0, camY = 0, camZ = 10.78;
-
+let camX = 0, camY = 0, camZ = -10.78;  // arrow keys, w, s
 let sliderAngle = 0;                    // degrees
 let spinning = false, spinAngle = 0;    // Start/Stop button
 
@@ -853,23 +495,20 @@ window.addEventListener("mousemove", e => {
   lastX = e.clientX; lastY = e.clientY;
 });
 canvas.addEventListener("wheel", e => {
-   e.preventDefault();
-   camZ -= e.deltaY * 0.01;
-   camZ = Math.max(0.1, Math.min(100, camZ));
-   },
-   { passive: false } 
-);
+  e.preventDefault();
+  camZ = Math.min(-0.1, Math.max(-100, camZ + e.deltaY * 0.01));
+}, { passive: false });
 
 document.addEventListener("keydown", e => {
   if (e.target === vertEditor || e.target === fragEditor) return;  // let the editors use the keys
   const step = 0.2;
   switch (e.key) {
-    case "ArrowUp": camY += step; break;
-    case "ArrowDown": camY -= step; break;
-    case "ArrowLeft": camX -= step; break;
-    case "ArrowRight": camX += step; break;
-    case "w": camZ -= step; break;
-    case "s": camZ += step; break;
+    case "ArrowUp": camY -= step; break;
+    case "ArrowDown": camY += step; break;
+    case "ArrowLeft": camX += step; break;
+    case "ArrowRight": camX -= step; break;
+    case "w": camZ += step; break;
+    case "s": camZ -= step; break;
     default: return;
   }
   e.preventDefault();  // keep the arrow keys from scrolling the page
@@ -882,59 +521,44 @@ document.getElementById("slider").addEventListener("input", e => {
 });
 document.getElementById("spinButton").addEventListener("click", () => spinning = !spinning);
 
-const SHADINGS = ["flat", "gouraud", "phong"];
-const selected = group => document.querySelector(`input[name="${group}"]:checked`).value;
-
-function drawNode(node, view) {
-  const m = materials[node.material] ?? materials.default;
-  gl.uniform3fv(uniforms["uSpecularColor"], new Float32Array(m.SpecularColor));
-  gl.uniform3fv(uniforms["uDiffuseColor"], new Float32Array(m.DiffuseColor));
-  gl.uniform3fv(uniforms["uAmbientColor"], new Float32Array(m.AmbientColor));
-  gl.uniform1f(uniforms["uKa"], m.Ka);
-  gl.uniform1f(uniforms["uKd"], m.Kd);
-  gl.uniform1f(uniforms["uKs"], m.Ks);
-  gl.uniform1f(uniforms["uAlpha"], node.alpha ?? m.Alpha);
-
-  gl.uniformMatrix4fv(uniforms["uModelView"], false, multiply(view, node.frame, node.shape));
-  gl.uniform3fv(uniforms["uColor"], node.color);
-  const texture = node.texture ?? m.texture;
-  gl.uniform1i(uniforms["uMapping"], texture ? node.mapping ?? BUMP_MAPPING : NO_MAPPING);
-  gl.bindTexture(gl.TEXTURE_2D, texture ?? null);
-  
-  gl.bindVertexArray(node.mesh.vao);
-  gl.drawElements(gl.TRIANGLES, node.mesh.count, gl.UNSIGNED_SHORT, 0);
-}
-
-function updateFrames(root, rootFrame) {
-  const stack = [[root, rootFrame]];
-  while (stack.length > 0) {
-    const [node, parentFrame] = stack.pop();
-    node.frame = multiply(parentFrame, node.pose ?? identity());
-    for (const child of node.children ?? []) stack.push([child, node.frame]);
-  }
-}
-
-
 function uploadLights(view) {
-  const positions = [], directions = [], colors = [], types = [];
+  const positions = [], colors = [], directions = [], cutoffs = [];
   for (const node of lightNodes) {
     const frame = multiply(view, node.frame);
     positions.push(...transformPoint(frame, [0, 0, 0]));
     directions.push(...normalize(transformDirection(frame, node.light.spotDir)));
     colors.push(...node.light.color);
-    types.push(node.light.type === "spot" ? 1 : 0);
+    cutoffs.push(node.light.cutoff);
   }
-  gl.uniform3fv(uniforms["uLightPos"], new Float32Array(positions));
-  gl.uniform3fv(uniforms["uSpotDir"], new Float32Array(directions));
-  gl.uniform3fv(uniforms["uLightColor"], new Float32Array(colors));
-  gl.uniform1iv(uniforms["uLightType"], new Int32Array(types));
+  gl.uniform3fv(uniforms.uLightPos, new Float32Array(positions));
+  gl.uniform3fv(uniforms.uSpotDir, new Float32Array(directions));
+  gl.uniform3fv(uniforms.uLightColor, new Float32Array(colors));
+  gl.uniform1fv(uniforms.uCutoff, new Float32Array(cutoffs));
+}
+
+function drawNode(node, view) {
+  const m = materials[node.material];
+  gl.uniform3fv(uniforms.uColor, m.color ?? [1, 1, 1]);
+  gl.uniform1f(uniforms.uKa, m.Ka);
+  gl.uniform1f(uniforms.uKd, m.Kd);
+  gl.uniform1f(uniforms.uKs, m.Ks);
+  gl.uniform1f(uniforms.uShininess, m.shininess);
+  gl.uniform1f(uniforms.uAlpha, m.uAlpha);
+
+  const texture = node.texture ?? m.texture;
+  gl.uniform1i(uniforms.uMapping, texture ? node.mapping ?? BUMP_MAPPING : NO_MAPPING);
+  gl.bindTexture(gl.TEXTURE_2D, texture ?? null);
+
+  gl.uniformMatrix4fv(uniforms.uModelView, false, multiply(view, node.frame, node.shape));
+  gl.bindVertexArray(node.mesh.vao);
+  gl.drawElements(gl.TRIANGLES, node.mesh.count, gl.UNSIGNED_SHORT, 0);
 }
 
 function drawTree(root, view) {
   const stack = [root];
   while (stack.length > 0) {
     const node = stack.pop();
-    if (node.shape) drawNode(node, view);
+    if (node.mesh) drawNode(node, view);
     for (const child of node.children ?? []) stack.push(child);
   }
 }
@@ -946,29 +570,22 @@ function render(time) {
   const dt = Math.min(t - lastTime, 0.1);
   if (spinning) spinAngle += t - lastTime;
   lastTime = t;
-  advanceAnimations(dt);
+  advanceAnimation(dt);
+  updateVideoTexture();
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-  const projection = perspective(Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
-  gl.uniformMatrix4fv(uniforms["uProjection"], false, projection);
-  gl.uniform1f(uniforms["uCutoff"], spotLightTerms["Cutoff"]);
-  gl.uniform1f(uniforms["uSpotExponent"], spotLightTerms["SpotExponent"]);
+  // Camera moves with the keys; the light stays fixed in the world.
+  const view = translate(camX, camY, camZ);
+  gl.uniformMatrix4fv(uniforms.uProjection, false, projection);
 
-  gl.uniform1i(uniforms["uShading"], SHADINGS.indexOf(selected("shading")));
-  gl.uniform1i(uniforms["uPerturb"], selected("mapping") === "on" ? 1 : 0);
-  updateVideoTexture();
-
-// Whole-model rotation
+  // Whole-model rotation
   const axisRotation = ROTATE[axisSelect.value](sliderAngle * Math.PI / 180 + spinAngle);
-  const rotation = multiply(rotateY(dragRotY), rotateX(dragRotX), axisRotation); 
+  scene.pose = multiply(rotateY(dragRotY), rotateX(dragRotX), axisRotation);
 
-  scene.pose = rotation;
-  camera.pose = translate(camX, camY, camZ);
-
-  updateFrames(root, identity());
-  const view = rigidInverse(camera.frame);
+  updateFrames(scene, identity());
   uploadLights(view);
-  drawTree(root, view);
+  drawTree(scene, view);
   requestAnimationFrame(render);
 }
 requestAnimationFrame(render);
+
