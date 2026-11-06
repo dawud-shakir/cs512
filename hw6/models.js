@@ -125,36 +125,50 @@ function createTorus(segments, R = 1.0, r = 0.25, uRepeat = 4) {
   return { positions: new Float32Array(pos), normals: new Float32Array(nrm), tangents: new Float32Array(tang), texCoords: new Float32Array(tex), indices: new Uint16Array(idx) };
 }
 
-function createGear(segments, holeRadius = 0.35, R = 1.0, a = 0.15, N = 12, h = 0.3) {
-  const pos = [], nrm = [], idx = [];
 
+function createCone(segments, uRepeat = 3) {
+  const pos = [], nrm = [], tex = [], tang = [], idx = [];
+
+   const hypot = Math.hypot(1, 2);  // radius is 1, height is -1 to +1 = 2
   for (let i = 0; i <= segments; i++) {
-    const theta = i === segments ? 0 : (i / segments) * Math.PI * 2;
-    const c = Math.cos(theta), s = Math.sin(theta);
-    const r = R + a * Math.cos(N * theta);
-    const dr = -a * N * Math.sin(N * theta);
-    const x = r * c, z = r * s;
-    const ix = holeRadius * c, iz = holeRadius * s;
-    const len = Math.hypot(r * c + dr * s, r * s - dr * c);
-    const nx = (r * c + dr * s) / len, nz = (r * s - dr * c) / len;
+    const u = i / segments;
 
-    pos.push(x, -h / 2, z, x, h / 2, z);
-    nrm.push(nx, 0, nz, nx, 0, nz);
-    pos.push(ix, -h / 2, iz, ix, h / 2, iz);
-    nrm.push(-c, 0, -s, -c, 0, -s);
-    pos.push(ix, h / 2, iz, x, h / 2, z);
-    nrm.push(0, 1, 0, 0, 1, 0);
-    pos.push(ix, -h / 2, iz, x, -h / 2, z);
-    nrm.push(0, -1, 0, 0, -1, 0);
+
+    const a = u * Math.PI * 2;
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    const nx = 2 * c / hypot, ny = 1 / hypot, nz = 2 * s / hypot;
+    
+    
+    pos.push(s, -1, c,  0, 1, 0);
+    nrm.push(nz, ny, nx,  nz, ny, nx);
+    
+    tex.push(u * uRepeat, 0, u * uRepeat, 1);   
+
+    tang.push(c, 0, -s,  c, 0, -s);  // give the apex the same tangent as the base
   }
-
   for (let i = 0; i < segments; i++) {
-    const b = i * 8, n = (i + 1) * 8;
-    idx.push(b, n + 1, n, b, b + 1, n + 1);
-    idx.push(b + 2, n + 3, b + 3, b + 2, n + 2, n + 3);
-    idx.push(b + 4, n + 5, b + 5, b + 4, n + 4, n + 5);
-    idx.push(b + 6, n + 7, n + 6, b + 6, b + 7, n + 7);
+    const b = i * 2;
+    idx.push(b, b + 2, b + 1);
   }
 
-  return { positions: new Float32Array(pos), normals: new Float32Array(nrm), indices: new Uint16Array(idx) };
+  const center = pos.length / 3;
+  pos.push(0, -1, 0);
+  nrm.push(0, -1, 0);
+  tang.push(1, 0, 0);
+  tex.push(0.5, 0.5);
+  for (let i = 0; i <= segments; i++) {
+    const a = (i / segments) * Math.PI * 2, s = Math.sin(a), c = Math.cos(a);
+    pos.push(s, -1, c);
+    nrm.push(0, -1, 0);
+    tang.push(1, 0, 0);
+    tex.push(0.5 + 0.5 * s, 0.5 + 0.5 * c);
+  }
+  for (let i = 0; i < segments; i++) {
+    const a = center + 1 + i, b = a + 1;
+    idx.push(center, b, a);
+  }
+
+  return { positions: new Float32Array(pos), normals: new Float32Array(nrm), texCoords: new Float32Array(tex), tangents: new Float32Array(tang), indices: new Uint16Array(idx) };
 }
+

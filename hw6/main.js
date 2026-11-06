@@ -1,3 +1,113 @@
+const VERTEX_SHADER = `#version 300 es
+in vec3 aPosition;
+in vec3 aNormal;
+in vec3 aTangent;
+in vec2 aTexCoord;
+
+uniform mat4 uModelView;
+uniform mat4 uProjection;
+
+out vec3 vPosition;
+out vec3 vNormal;
+out vec3 vTangent;
+out vec3 vBitangent;
+out vec2 vTexCoord;
+
+void main() {
+  vec4 p = uModelView * vec4(aPosition, 1.0);
+  vPosition = p.xyz;
+  // Inverse transpose for potential non-uniform scalings
+  mat3 mv = mat3(uModelView);
+  vNormal = transpose(inverse(mv)) * aNormal;
+  vTangent = mv * aTangent;
+  vBitangent = cross(vNormal, vTangent);
+  vTexCoord = aTexCoord;
+  gl_Position = uProjection * p;
+}
+`;
+
+const FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+const int NUM_LIGHTS = 5;
+const int NO_MAPPING = 0, TEXTURE_MAPPING = 1, BUMP_MAPPING = 2, NORMAL_MAPPING = 3, TEXTURE_NORMAL_MAPPING = 4;
+const float bumpStrength = 3.0;
+
+
+in vec3 vPosition;
+in vec3 vNormal;
+in vec3 vTangent;
+in vec3 vBitangent;
+in vec2 vTexCoord;
+
+uniform vec3 uLightPos[NUM_LIGHTS];   // eye space
+uniform vec3 uLightColor[NUM_LIGHTS];
+uniform vec3 uSpotDir[NUM_LIGHTS];
+uniform float uCutoff[NUM_LIGHTS];
+
+uniform vec3 uColor;
+uniform float uKa;
+uniform float uKd;
+uniform float uKs;
+uniform float uShininess;
+uniform float uAlpha;
+
+uniform sampler2D uTexture;
+uniform sampler2D uNormalMap;
+uniform int uMapping;
+
+out vec4 fragColor;
+
+float height(vec2 uv) {
+  return dot(texture(uTexture, uv).rgb, vec3(0.299, 0.587, 0.114));
+}
+
+vec3 perturbedNormal(vec3 N) {
+  if (uMapping != BUMP_MAPPING && uMapping != NORMAL_MAPPING && uMapping != TEXTURE_NORMAL_MAPPING) return N;
+  mat3 TBN = mat3(normalize(vTangent), normalize(vBitangent), N);
+  if (uMapping == NORMAL_MAPPING) {
+    vec3 tangentNormal = texture(uTexture, vTexCoord).rgb * 2.0 - 1.0;
+    return normalize(TBN * tangentNormal);
+  }
+  if (uMapping == TEXTURE_NORMAL_MAPPING) {
+    vec3 tangentNormal = texture(uNormalMap, vTexCoord).rgb * 2.0 - 1.0;
+    return normalize(TBN * tangentNormal);
+  }
+
+  vec2 texel = 1.0 / vec2(textureSize(uTexture, 0));
+  float h = height(vTexCoord);
+  float hu = height(vTexCoord + vec2(texel.x, 0.0));
+  float hv = height(vTexCoord + vec2(0.0, texel.y));
+  vec3 bumpNormal = vec3((hu - h) * bumpStrength, (hv - h) * bumpStrength, 1.0);
+  return normalize(TBN * bumpNormal);
+}
+
+vec3 calculateLight(int i, vec3 N, vec3 V, vec3 color) {
+  vec3 L = normalize(uLightPos[i] - vPosition);
+  vec3 R = reflect(-L, N);
+  float diff = max(dot(N, L), 0.0);
+  float spec = pow(max(dot(V, R), 0.0), uShininess);
+
+  float d = length(uLightPos[i] - vPosition);
+  float attenuation = 1.0 / (1.0 + 0.09 * d + 0.032 * d * d);
+  float spot = step(uCutoff[i], dot(-L, uSpotDir[i]));
+
+  return spot * attenuation * uLightColor[i] * (uKd * diff * color + uKs * spec);
+}
+
+void main() {
+  vec3 color = uMapping == TEXTURE_MAPPING || uMapping == BUMP_MAPPING || uMapping == TEXTURE_NORMAL_MAPPING ? uColor * texture(uTexture, vTexCoord).rgb : uColor;
+  vec3 N = perturbedNormal(normalize(vNormal));
+  vec3 V = normalize(-vPosition);           // camera sits at the origin
+
+  vec3 result = uKa * color;
+  for (int i = 0; i < NUM_LIGHTS; i++) result += calculateLight(i, N, V, color);
+  fragColor = vec4(result, uAlpha);
+}
+`;
+
+const NO_MAPPING = 0, TEXTURE_MAPPING = 1, BUMP_MAPPING = 2, NORMAL_MAPPING = 3, TEXTURE_NORMAL_MAPPING = 4;
+
 // WebGL setup
 const canvas = document.getElementById("glcanvas");
 const gl = canvas.getContext("webgl2");
@@ -48,9 +158,10 @@ const cubeMesh = createMesh(createCube());
 const cylinderMesh = createMesh(createCylinder(32));
 const sphereMesh = createMesh(createSphere(32));
 const torusMesh = createMesh(createTorus(32));
-const gearMesh = createMesh(createGear(12 * 16, 0.7));
 const floorMesh = createMesh(createGrid(2.5));
 const wallMesh = createMesh(createGrid(2.5, 2.25));
+const coneMesh = createMesh(createCone(32));
+
 
 function loadTexture(url) {
   const texture = gl.createTexture();
@@ -75,12 +186,12 @@ const floorTexture = loadTexture("textures/floor.png");
 const floorNormalMap = loadTexture("textures/floor_nmap.png");
 const wallTexture = loadTexture("textures/wallpaper_tex.png");
 const wallNormalMap = loadTexture("textures/wallpaper_nmap.png");
-const normalTexture = loadTexture("textures/texture2.jpg");
 const ivoryTexture = loadTexture("textures/ivory_polymer.png");
 const ivoryNormalMap = loadTexture("textures/ivory_polymer_nmap.png");
 const charcoalTexture = loadTexture("textures/charcoal_polymer.png");
 const rubberTexture = loadTexture("textures/black_rubber.png");
 const beachBallTexture = loadTexture("textures/beach_ball.png");
+const beachBallNormalMap = loadTexture("textures/beach_ball_nmap.png");
 const cubeHexagonTexture = loadTexture("textures/cube_hexagon.png");
 const sunTexture = loadTexture("textures/sun.png");
 const playmatTexture = loadTexture("textures/playmat.png");
@@ -109,15 +220,11 @@ function updateVideoTexture() {
   }
 }
 
-const NO_MAPPING = 0, TEXTURE_MAPPING = 1, BUMP_MAPPING = 2, NORMAL_MAPPING = 3, TEXTURE_NORMAL_MAPPING = 4;
-
 const materials = {
   default:  { Ka: 0.20, Kd: 0.80, Ks: 0.50, shininess: 32, },
   ivory:    { Ka: 0.75, Kd: 0.60, Ks: 0.10, shininess: 12, texture: ivoryTexture },
   charcoal: { Ka: 0.20, Kd: 0.75, Ks: 0.45, shininess: 60, texture: charcoalTexture },
   rubber:   { Ka: 0.10, Kd: 0.70, Ks: 0.05, shininess: 8, texture: rubberTexture },
-  copper:   { Ka: 0.30, Kd: 0.70, Ks: 0.60, shininess: 40, color: [0.78, 0.26, 0.18] },
-  brass:    { Ka: 0.25, Kd: 0.65, Ks: 0.70, shininess: 60, color: [0.75, 0.60, 0.22] },
   floor:    { Ka: 0.30, Kd: 0.85, Ks: 0.10, shininess: 16, },
   wall:     { Ka: 0.40, Kd: 0.80, Ks: 0.02, shininess: 8, },
   beachBall: { Ka: 0.40, Kd: 0.80, Ks: 0.30, shininess: 32 },
@@ -216,13 +323,15 @@ const scene = {
       ]
     },
 
-    // textured(node("normalCylinder", cylinderMesh, "brass", translate(4.8, -1.1, 0.6), scale(0.6, 0.8, 0.6)), normalTexture, NORMAL_MAPPING),
-    textured(node("ball", sphereMesh, "beachBall", translate(3.2, -1.1, 2.6), scale(0.8, 0.8, 0.8)), beachBallTexture, TEXTURE_MAPPING),
+    textured(node("cone", coneMesh, "beachBall", translate(3.2, -1.1, 2.6), scale(0.8, 0.8, 0.8)), beachBallTexture, BUMP_MAPPING),
+    textured(node("ball", sphereMesh, "beachBall", translate(-1, -1.20, -2), scale(0.3, 0.3, 0.3)), beachBallTexture, TEXTURE_NORMAL_MAPPING, beachBallNormalMap),
 
     light("ceilingLight", [0, 3.8, 0]),
-    light("sideLight", [2.5, 1.5, 1]),
+    light("sideLight", [2.5, 4.5, 1]),
     //light("backLight", [-3.5, 3.0, -2.5]),
     //light("frontLight", [2.5, 2.0, 6.5], [1, 1, 1], [0.1, -0.45, -0.9]),
+
+    // Floor light for simulated ray bounces 
     light("floorLight", [3.2, -1.9, 3.5], [0.3, 0.3, 0.3]),
 
     {
@@ -235,8 +344,6 @@ const scene = {
         node("cube1", cubeMesh, "cubeHexagon", translate(-0.6, 1.15, 1.2), scale(0.2, 0.2, 0.2)),
         node("cube2", cubeMesh, "cubeHexagon", translate(-1.8, 1.15, 0.6), scale(0.2, 0.2, 0.2)),
         node("cube3", cubeMesh, "cubeHexagon", translate(0.4, 1.15, 1.6), scale(0.2, 0.2, 0.2)),
-
-        node("gear", gearMesh, "copper", translate(1.2, 1.15, -1.5), scale(0.3, 0.6, 0.3)),
 
         {
           name: "Baby Gen",
@@ -316,118 +423,6 @@ function indexNodes(node, byName = {}) {
 const nodes = indexNodes(scene);
 const lightNodes = Object.values(nodes).filter(node => node.light);
 
-const VERTEX_SHADER = `#version 300 es
-in vec3 aPosition;
-in vec3 aNormal;
-in vec3 aTangent;
-in vec2 aTexCoord;
-
-uniform mat4 uModelView;
-uniform mat4 uProjection;
-
-out vec3 vPosition;
-out vec3 vNormal;
-out vec3 vTangent;
-out vec3 vBitangent;
-out vec2 vTexCoord;
-
-void main() {
-  vec4 p = uModelView * vec4(aPosition, 1.0);
-  vPosition = p.xyz;
-  // Inverse transpose for potential non-uniform scalings
-  mat3 mv = mat3(uModelView);
-  vNormal = transpose(inverse(mv)) * aNormal;
-  vTangent = mv * aTangent;
-  vBitangent = cross(vNormal, vTangent);
-  vTexCoord = aTexCoord;
-  gl_Position = uProjection * p;
-}
-`;
-
-const FRAGMENT_SHADER = `#version 300 es
-precision highp float;
-
-const int NUM_LIGHTS = ${lightNodes.length};
-const int NO_MAPPING = ${NO_MAPPING}, 
-          TEXTURE_MAPPING = ${TEXTURE_MAPPING}, 
-          BUMP_MAPPING = ${BUMP_MAPPING},
-          NORMAL_MAPPING = ${NORMAL_MAPPING},
-          TEXTURE_NORMAL_MAPPING = ${TEXTURE_NORMAL_MAPPING};
-const float bumpStrength = 3.0;
-
-
-in vec3 vPosition;
-in vec3 vNormal;
-in vec3 vTangent;
-in vec3 vBitangent;
-in vec2 vTexCoord;
-
-uniform vec3 uLightPos[NUM_LIGHTS];   // eye space
-uniform vec3 uLightColor[NUM_LIGHTS];
-uniform vec3 uSpotDir[NUM_LIGHTS];
-uniform float uCutoff[NUM_LIGHTS];
-
-uniform vec3 uColor;
-uniform float uKa;
-uniform float uKd;
-uniform float uKs;
-uniform float uShininess;
-uniform float uAlpha;
-
-uniform sampler2D uTexture;
-uniform sampler2D uNormalMap;
-uniform int uMapping;
-
-out vec4 fragColor;
-
-float height(vec2 uv) {
-  return dot(texture(uTexture, uv).rgb, vec3(0.299, 0.587, 0.114));
-}
-
-vec3 perturbedNormal(vec3 N) {
-  if (uMapping != BUMP_MAPPING && uMapping != NORMAL_MAPPING && uMapping != TEXTURE_NORMAL_MAPPING) return N;
-  mat3 TBN = mat3(normalize(vTangent), normalize(vBitangent), N);
-  if (uMapping == NORMAL_MAPPING) {
-    vec3 tangentNormal = texture(uTexture, vTexCoord).rgb * 2.0 - 1.0;
-    return normalize(TBN * tangentNormal);
-  }
-  if (uMapping == TEXTURE_NORMAL_MAPPING) {
-    vec3 tangentNormal = texture(uNormalMap, vTexCoord).rgb * 2.0 - 1.0;
-    return normalize(TBN * tangentNormal);
-  }
-
-  vec2 texel = 1.0 / vec2(textureSize(uTexture, 0));
-  float h = height(vTexCoord);
-  float hu = height(vTexCoord + vec2(texel.x, 0.0));
-  float hv = height(vTexCoord + vec2(0.0, texel.y));
-  vec3 bumpNormal = vec3((hu - h) * bumpStrength, (hv - h) * bumpStrength, 1.0);
-  return normalize(TBN * bumpNormal);
-}
-
-vec3 calculateLight(int i, vec3 N, vec3 V, vec3 color) {
-  vec3 L = normalize(uLightPos[i] - vPosition);
-  vec3 R = reflect(-L, N);
-  float diff = max(dot(N, L), 0.0);
-  float spec = pow(max(dot(V, R), 0.0), uShininess);
-
-  float d = length(uLightPos[i] - vPosition);
-  float attenuation = 1.0 / (1.0 + 0.09 * d + 0.032 * d * d);
-  float spot = step(uCutoff[i], dot(-L, uSpotDir[i]));
-
-  return spot * attenuation * uLightColor[i] * (uKd * diff * color + uKs * spec);
-}
-
-void main() {
-  vec3 color = uMapping == TEXTURE_MAPPING || uMapping == BUMP_MAPPING || uMapping == TEXTURE_NORMAL_MAPPING ? uColor * texture(uTexture, vTexCoord).rgb : uColor;
-  vec3 N = perturbedNormal(normalize(vNormal));
-  vec3 V = normalize(-vPosition);           // camera sits at the origin
-
-  vec3 result = uKa * color;
-  for (int i = 0; i < NUM_LIGHTS; i++) result += calculateLight(i, N, V, color);
-  fragColor = vec4(result, uAlpha);
-}
-`;
-
 // Shader editors
 const vertEditor = document.getElementById("vertEditor");
 const fragEditor = document.getElementById("fragEditor");
@@ -484,41 +479,10 @@ const startPose = {
   fingerPivotLeft: -8, fingerPivotRight: 8, fingerTipPivotLeft: -12, fingerTipPivotRight: 12,
 };
 
-const GRIPPER_POSES = {
-  open:   { fingerPivotLeft: 15,  fingerPivotRight: -15, fingerTipPivotLeft: 0,   fingerTipPivotRight: 0 },
-  closed: { fingerPivotLeft: -10, fingerPivotRight: 10,  fingerTipPivotLeft: -15, fingerTipPivotRight: 15 },
-};
-
-const currentAngles = {};
-
 function setJoint(name, degrees) {
-  currentAngles[name] = degrees;
   nodes[name].pose = multiply(nodes[name].joint, JOINTS[name](rad(degrees)));
 }
 for (const name in JOINTS) setJoint(name, startPose[name]);
-
-let animation = null;
-
-function animate(targets, duration) {
-  animation = { targets, duration, elapsed: 0, start: { ...currentAngles } };
-}
-
-function advanceAnimation(dt) {
-  if (!animation) return;
-  animation.elapsed += dt;
-  const p = Math.min(animation.elapsed / animation.duration, 1);
-  const eased = p * p * (3 - 2 * p);
-  for (const name in animation.targets) setJoint(name, animation.start[name] + (animation.targets[name] - animation.start[name]) * eased);
-  if (p === 1) animation = null;
-}
-
-let gripperOpen = false;
-const gripperButton = document.getElementById("gripperButton");
-gripperButton.addEventListener("click", () => {
-  gripperOpen = !gripperOpen;
-  gripperButton.textContent = gripperOpen ? "Close Gripper" : "Open Gripper";
-  animate(GRIPPER_POSES[gripperOpen ? "open" : "closed"], 0.5);
-});
 
 gl.enable(gl.DEPTH_TEST);
 
@@ -621,10 +585,8 @@ function drawTree(root, view) {
 let lastTime = 0;
 function render(time) {
   const t = time / 1000;
-  const dt = Math.min(t - lastTime, 0.1);
   if (spinning) spinAngle += t - lastTime;
   lastTime = t;
-  advanceAnimation(dt);
   updateVideoTexture();
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 

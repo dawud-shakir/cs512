@@ -26,8 +26,10 @@
 
 <body>
   <h2>Baby Gen</h2>
-  <p>A robot arm with scene-graph lighting and texture mapping:<br>
-    bump-mapped floor, walls and arm; normal-mapped cylinder; a video on the sphere and the screen.</p>
+  <p>Scene-graph lighting and texture mapping:<br>
+    The floor, walls, ivory arm segments, playmat and sign use <u>normal mapping with an aligned texture</u>;<br>
+    the cone, sun, cubes and the dark arm parts are <u>bump-mapped</u> from their textures;<br>
+    the <u>video</u> is from a live experiment I did.</p>
   <p>Edit the shaders on the left; the canvas updates as you type.<br>
     Drag with the mouse to rotate the model.<br>
     Use the arrow keys and w, s keys to move the camera. Scroll to zoom.<br>
@@ -62,9 +64,6 @@
             <option value="z">Z Rotation</option>
           </select>
           <button id="spinButton">Start/Stop Rotation</button>
-        </div>
-        <div class="control-row">
-          <button id="gripperButton">Open Gripper</button>
         </div>
       </div>
     </div>
