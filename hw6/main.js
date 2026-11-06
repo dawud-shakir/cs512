@@ -350,12 +350,12 @@ const scene = {
 
     {
         name: "floor",
-        joint: translate(0, -1.9, 0),
+        joint: translate(0, -1.8, 0),
         children: [
-            textured(node("floor", floorMesh, "floor", translate(0, 0, 0), scale(5, 1, 5)), floorTexture, TEXTURE_NORMAL_MAPPING, floorNormalMap),
+            textured(node("floor", floorMesh, "floor", translate(0, -0.1, 0), scale(5, 1, 5)), floorTexture, TEXTURE_NORMAL_MAPPING, floorNormalMap),
             textured(node("mat", cylinderMesh, "default",  translate(0, 0.01, 0), scale(2.8, 0.01, 2.8)), playmatTexture, TEXTURE_NORMAL_MAPPING, playmatNormalMap),
 
-            textured(node("cone", coneMesh, "beachBall", translate(3.2, 0.8, 2.6), scale(0.8, 0.8, 0.8)), beachBallTexture, BUMP_MAPPING),
+            textured(node("cone", coneMesh, "beachBall", translate(3.2, 0.81, 2.6), scale(0.8, 0.8, 0.8)), beachBallTexture, BUMP_MAPPING),
             textured(node("ball", sphereMesh, "beachBall", translate(-1, 0.3, -2), scale(0.3, 0.3, 0.3)), beachBallTexture, TEXTURE_NORMAL_MAPPING, beachBallNormalMap),
             {
             name: "playmat",
@@ -364,13 +364,13 @@ const scene = {
                 
 
 
-            node("cube0", cubeMesh, "cubeHexagon", translate(1.4, 0.1, 1.0), scale(0.2, 0.2, 0.2)),
-            node("cube1", cubeMesh, "cubeHexagon", translate(-0.6, 0.1, 1.2), scale(0.2, 0.2, 0.2)),
-            node("cube2", cubeMesh, "cubeHexagon", translate(-1.8, 0.1, 0.6), scale(0.2, 0.2, 0.2)),
+            node("cube0", cubeMesh, "cubeHexagon", translate(1.4, 0.11, 1.0), scale(0.2, 0.2, 0.2)),
+            node("cube1", cubeMesh, "cubeHexagon", translate(-0.6, 0.11, 1.2), scale(0.2, 0.2, 0.2)),
+            node("cube2", cubeMesh, "cubeHexagon", translate(-1.8, 0.11, 0.6), scale(0.2, 0.2, 0.2)),
             
             {
             name: "Baby Gen",
-            joint: multiply(translate(0, -0.1, -0.1), scale(0.5, 0.5, 0.5)),
+            joint: multiply(translate(0, -0.09, -0.1), scale(0.5, 0.5, 0.5)),
             children: [
                 textured(node("base", cylinderMesh, "ivory", translate(0, 0.35, 0), scale(0.60, 0.35, 0.60)), ivoryTexture, TEXTURE_NORMAL_MAPPING, ivoryNormalMap),
                 node("baseFoot", torusMesh, "charcoal", translate(0, 0.145, 0), scale(0.58, 0.58, 0.58)),
