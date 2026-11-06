@@ -16,7 +16,7 @@ out vec2 vTexCoord;
 void main() {
   vec4 p = uModelView * vec4(aPosition, 1.0);
   vPosition = p.xyz;
-  // Inverse transpose for potential non-uniform scalings
+  // Inverse transpose for non-uniform scalings
   mat3 mv = mat3(uModelView);
   vNormal = transpose(inverse(mv)) * aNormal;
   vTangent = mv * aTangent;
@@ -29,10 +29,9 @@ void main() {
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
-const int NUM_LIGHTS = 5;
-const int NO_MAPPING = 0, TEXTURE_MAPPING = 1, BUMP_MAPPING = 2, NORMAL_MAPPING = 3, TEXTURE_NORMAL_MAPPING = 4;
+const int NUM_LIGHTS = 4;
+const int NO_MAPPING = 0, TEXTURE_MAPPING = 1, BUMP_MAPPING = 2, NORMAL_MAPPING = 3;
 const float bumpStrength = 3.0;
-
 
 in vec3 vPosition;
 in vec3 vNormal;
@@ -63,13 +62,9 @@ float height(vec2 uv) {
 }
 
 vec3 perturbedNormal(vec3 N) {
-  if (uMapping != BUMP_MAPPING && uMapping != NORMAL_MAPPING && uMapping != TEXTURE_NORMAL_MAPPING) return N;
+  if (uMapping != BUMP_MAPPING && uMapping != NORMAL_MAPPING) return N;
   mat3 TBN = mat3(normalize(vTangent), normalize(vBitangent), N);
   if (uMapping == NORMAL_MAPPING) {
-    vec3 tangentNormal = texture(uTexture, vTexCoord).rgb * 2.0 - 1.0;
-    return normalize(TBN * tangentNormal);
-  }
-  if (uMapping == TEXTURE_NORMAL_MAPPING) {
     vec3 tangentNormal = texture(uNormalMap, vTexCoord).rgb * 2.0 - 1.0;
     return normalize(TBN * tangentNormal);
   }
@@ -96,7 +91,7 @@ vec3 calculateLight(int i, vec3 N, vec3 V, vec3 color) {
 }
 
 void main() {
-  vec3 color = uMapping == TEXTURE_MAPPING || uMapping == BUMP_MAPPING || uMapping == TEXTURE_NORMAL_MAPPING ? uColor * texture(uTexture, vTexCoord).rgb : uColor;
+  vec3 color = uMapping == NO_MAPPING ? uColor : uColor * texture(uTexture, vTexCoord).rgb;
   vec3 N = perturbedNormal(normalize(vNormal));
   vec3 V = normalize(-vPosition);           // camera sits at the origin
 
@@ -106,7 +101,7 @@ void main() {
 }
 `;
 
-const NO_MAPPING = 0, TEXTURE_MAPPING = 1, BUMP_MAPPING = 2, NORMAL_MAPPING = 3, TEXTURE_NORMAL_MAPPING = 4;
+const NO_MAPPING = 0, TEXTURE_MAPPING = 1, BUMP_MAPPING = 2, NORMAL_MAPPING = 3;
 
 // WebGL setup
 const canvas = document.getElementById("glcanvas");
@@ -121,7 +116,7 @@ function compile(type, source) {
 }
 
 // Fixed attribute slots, so the meshes stay valid when the shaders are recompiled
-const ATTRIBUTES = { aPosition: 0, aNormal: 1, aTexCoord: 2, aTangent: 3};
+const ATTRIBUTES = { aPosition: 0, aNormal: 1, aTexCoord: 2, aTangent: 3 };
 
 function createProgram(vsSource, fsSource) {
   const prog = gl.createProgram();
@@ -133,7 +128,6 @@ function createProgram(vsSource, fsSource) {
   return prog;
 }
 
-
 function bindAttribute(name, data, size) {
   gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
   gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
@@ -144,11 +138,10 @@ function bindAttribute(name, data, size) {
 function createMesh({ positions, normals, tangents, texCoords, indices }) {
   const vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
-  const vertices = positions.length / 3;
   bindAttribute("aPosition", positions, 3);
   bindAttribute("aNormal", normals, 3);
-  bindAttribute("aTangent", tangents ?? new Float32Array(vertices * 3), 3);
-  bindAttribute("aTexCoord", texCoords ?? new Float32Array(vertices * 2), 2);
+  bindAttribute("aTangent", tangents, 3);
+  bindAttribute("aTexCoord", texCoords, 2);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
   return { vao, count: indices.length };
@@ -158,10 +151,9 @@ const cubeMesh = createMesh(createCube());
 const cylinderMesh = createMesh(createCylinder(32));
 const sphereMesh = createMesh(createSphere(32));
 const torusMesh = createMesh(createTorus(32));
+const coneMesh = createMesh(createCone(32));
 const floorMesh = createMesh(createGrid(2.5));
 const wallMesh = createMesh(createGrid(2.5, 2.25));
-const coneMesh = createMesh(createCone(32));
-
 
 function loadTexture(url) {
   const texture = gl.createTexture();
@@ -200,9 +192,7 @@ const signTexture = loadTexture("textures/sign_tex.png");
 const signNormalMap = loadTexture("textures/sign_nmap.png");
 
 const videoElement = document.createElement("video");
-//videoElement.src = "textures/flintstones.mp4";
 videoElement.src = "textures/gen3_video.mp4";
-
 videoElement.loop = true;
 videoElement.muted = true;
 videoElement.play();
@@ -221,23 +211,18 @@ function updateVideoTexture() {
 }
 
 const materials = {
-  default:  { Ka: 0.20, Kd: 0.80, Ks: 0.50, shininess: 32, },
-  ivory:    { Ka: 0.75, Kd: 0.60, Ks: 0.10, shininess: 12, texture: ivoryTexture },
-  charcoal: { Ka: 0.20, Kd: 0.75, Ks: 0.45, shininess: 60, texture: charcoalTexture },
-  rubber:   { Ka: 0.10, Kd: 0.70, Ks: 0.05, shininess: 8, texture: rubberTexture },
-  floor:    { Ka: 0.30, Kd: 0.85, Ks: 0.10, shininess: 16, },
-  wall:     { Ka: 0.40, Kd: 0.80, Ks: 0.02, shininess: 8, },
-  beachBall: { Ka: 0.40, Kd: 0.80, Ks: 0.30, shininess: 32 },
+  default:     { Ka: 0.20, Kd: 0.80, Ks: 0.50, shininess: 32 },
+  ivory:       { Ka: 0.75, Kd: 0.60, Ks: 0.10, shininess: 12, texture: ivoryTexture },
+  charcoal:    { Ka: 0.20, Kd: 0.75, Ks: 0.45, shininess: 60, texture: charcoalTexture },
+  rubber:      { Ka: 0.10, Kd: 0.70, Ks: 0.05, shininess: 8, texture: rubberTexture },
+  floor:       { Ka: 0.30, Kd: 0.85, Ks: 0.10, shininess: 16 },
+  wall:        { Ka: 0.40, Kd: 0.80, Ks: 0.02, shininess: 8 },
+  window:      { Ka: 0.40, Kd: 0.80, Ks: 0.02, shininess: 8, alpha: 0.2 },
+  beachBall:   { Ka: 0.40, Kd: 0.80, Ks: 0.30, shininess: 32 },
   cubeHexagon: { Ka: 0.20, Kd: 0.80, Ks: 0.50, shininess: 32, texture: cubeHexagonTexture },
-  window:    { Ka: 0.40, Kd: 0.80, Ks: 0.02, shininess: 8, uAlpha: 0.2 },
-  sun:    { Ka: 1.0, Kd: 0.3, Ks: 0.0, shininess: 8  },
-
+  sun:         { Ka: 1.00, Kd: 0.30, Ks: 0.00, shininess: 8 },
 };
 
-for (const material of Object.values(materials)) {
-    material.uAlpha ??= 1.0;    // opaque default
-}
- 
 function node(name, mesh, material, ...transforms) {
   return { name, mesh, material, shape: multiply(...transforms) };
 }
@@ -254,18 +239,18 @@ function light(name, position, color = [1, 1, 1], spotDir = null) {
 function segment(name, length, radius, [startClear, endClear]) {
   const collar = (suffix, y) => node(`${name}_${suffix}`, cylinderMesh, "charcoal", translate(0, y, 0), scale(radius + 0.02, 0.07, radius + 0.02));
   return [
-    textured(node(name, cylinderMesh, "ivory", translate(0, length / 2, 0), scale(radius, length / 2, radius)), ivoryTexture, TEXTURE_NORMAL_MAPPING, ivoryNormalMap),
+    textured(node(name, cylinderMesh, "ivory", translate(0, length / 2, 0), scale(radius, length / 2, radius)), ivoryTexture, NORMAL_MAPPING, ivoryNormalMap),
     collar("collar_0", startClear + 0.09),
     collar("collar_1", length - endClear - 0.09),
   ];
 }
 
 function jointRings(name, radius) {
-  const half = radius * .25;//0.55;
+  const half = radius * 0.25;
   const axis = rotateX(Math.PI / 2);
   return [node(`${name}_band`, cylinderMesh, "ivory", axis, scale(radius, half, radius))].concat([-1, 1].flatMap(side => [
     node(`${name}_rim_${side}`, torusMesh, "charcoal", translate(0, 0, side * half), axis, scale(radius * 0.84, radius * 0.84, radius * 0.84)),
-    textured(node(`${name}_cap_${side}`, cylinderMesh, "ivory", translate(0, 0, side * (half + radius * 0.12)), axis, scale(radius * 0.84, radius * 0.10, radius * 0.84)), ivoryTexture, TEXTURE_NORMAL_MAPPING, ivoryNormalMap),
+    textured(node(`${name}_cap_${side}`, cylinderMesh, "ivory", translate(0, 0, side * (half + radius * 0.12)), axis, scale(radius * 0.84, radius * 0.10, radius * 0.84)), ivoryTexture, NORMAL_MAPPING, ivoryNormalMap),
     node(`${name}_seam_${side}`, cylinderMesh, "charcoal", translate(0, 0, side * (half + radius * 0.23)), axis, scale(radius * 0.68, radius * 0.02, radius * 0.68)),
     node(`${name}_hub_${side}`, cylinderMesh, "charcoal", translate(0, 0, side * (half + radius * 0.26)), axis, scale(radius * 0.54, radius * 0.04, radius * 0.54)),
   ]));
@@ -274,52 +259,115 @@ function jointRings(name, radius) {
 const upperLength = 2.4;
 const foreLength = 2.0;
 
+const babyGen = {
+  name: "Baby Gen",
+  joint: multiply(translate(0, -0.09, -0.1), scale(0.5, 0.5, 0.5)),
+  children: [
+    textured(node("base", cylinderMesh, "ivory", translate(0, 0.35, 0), scale(0.60, 0.35, 0.60)), ivoryTexture, NORMAL_MAPPING, ivoryNormalMap),
+    node("baseFoot", torusMesh, "charcoal", translate(0, 0.145, 0), scale(0.58, 0.58, 0.58)),
+    node("baseSeam", cylinderMesh, "charcoal", translate(0, 0.685, 0), scale(0.61, 0.015, 0.61)),
+    {
+      name: "basePivot",
+      joint: multiply(translate(0, 0.70, 0), rotateY(rad(0))),
+      children: [
+        node("baseCollar", cylinderMesh, "charcoal", translate(0, 0.15, 0), scale(0.43, 0.15, 0.43)),
+        {
+          name: "shoulderPivot",
+          joint: multiply(translate(0, 0.40, 0), rotateZ(rad(-30))),
+          children: [
+            ...jointRings("shoulder", 0.43),
+            ...segment("upperArm", upperLength, 0.22, [0.43, 0.39]),
+            {
+              name: "elbowPivot",
+              joint: multiply(translate(0, upperLength, 0), rotateZ(rad(-80))),
+              children: [
+                ...jointRings("elbow", 0.39),
+                ...segment("forearm", foreLength, 0.19, [0.39, 0.30]),
+                {
+                  name: "wristPivot",
+                  joint: multiply(translate(0, foreLength, 0), rotateZ(rad(-70))),
+                  children: [
+                    ...jointRings("wrist", 0.30),
+                    node("wristCollar", cylinderMesh, "charcoal", translate(0, 0.34, 0), scale(0.24, 0.16, 0.24)),
+                    node("wristCamera", cubeMesh, "charcoal", translate(0, 0.36, 0.28), scale(0.11, 0.09, 0.07)),
+                    node("wristLens", sphereMesh, "charcoal", translate(0, 0.46, 0.28), scale(0.04, 0.04, 0.04)),
+                    {
+                      name: "gripperPivot",
+                      joint: multiply(translate(0, 0.50, 0), rotateY(rad(0))),
+                      children: [
+                        node("gripperPalm", cubeMesh, "charcoal", translate(0, 0.13, 0), scale(0.34, 0.13, 0.22)),
+                        ...[["left", -1], ["right", 1]].map(([hand, side]) => ({
+                          name: `fingerPivot${hand}`,
+                          joint: multiply(translate(side * 0.25, 0.26, 0), rotateZ(rad(side * 8))),
+                          children: [
+                            node(`fingerUpper${hand}`, cubeMesh, "ivory", translate(0, 0.17, 0), scale(0.075, 0.17, 0.10)),
+                            {
+                              name: `fingerTipPivot${hand}`,
+                              joint: multiply(translate(0, 0.34, 0), rotateZ(rad(side * 12))),
+                              children: [
+                                node(`fingerTip${hand}`, cubeMesh, "rubber", translate(0, 0.13, 0), scale(0.075, 0.13, 0.10))
+                              ]
+                            }
+                          ]
+                        }))
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+};
+
 const scene = {
   name: "scene",
   children: [
     {
       name: "room",
       children: [
-
-        /////////////////////////////////////////////////////////////////////
-        // Room lights
-        /////////////////////////////////////////////////////////////////////
-
         {
+            
+          /////////////////////////////////////////////////////////////////////
+          // Walls
+          /////////////////////////////////////////////////////////////////////
+          
           name: "backWall",
           joint: translate(0, 0, -5),
           children: [
-            textured(node("backWallFace", wallMesh, "wall", translate(0, 1.1, 0), rotateX(Math.PI / 2), scale(5, 1, 3)), wallTexture, TEXTURE_NORMAL_MAPPING, wallNormalMap),
+            textured(node("backWallFace", wallMesh, "wall", translate(0, 1.1, 0), rotateX(Math.PI / 2), scale(5, 1, 3)), wallTexture, NORMAL_MAPPING, wallNormalMap),
             {
               name: "picture",
               joint: translate(2.6, 0, 0),
               children: [
                 textured(node("screen", cubeMesh, "default", translate(0, 1.4, 0.02), scale(1.1, 1.5, 0.01)), videoTexture),
-                
                 {
-                    name: "screen",
-                    joint: translate(0, -0.4, 0),
-                    children: [
-                            textured(node("sign", cubeMesh, "wall",  translate(0, .6,  0.1), rotateZ(rad(10)),scale(0.75, 0.5, .09)), signTexture, TEXTURE_NORMAL_MAPPING, signNormalMap),
-                        ]// sign_y = 3.5 for above}
+                  name: "signMount",
+                  joint: translate(0, -0.4, 0),
+                  children: [
+                    textured(node("sign", cubeMesh, "wall", translate(0, 0.6, 0.1), rotateZ(rad(10)), scale(0.75, 0.5, 0.09)), signTexture, NORMAL_MAPPING, signNormalMap),
+                  ]
                 },
-            ]
+              ]
             },
             {
               name: "window",
               joint: translate(-2.4, 2.0, -0.5),
               children: [
-                textured(node("windowFrame", cubeMesh, "cubeHexagon", scale(2, 2, 0.6))),
+                node("windowFrame", cubeMesh, "cubeHexagon", scale(2, 2, 0.6)),
 
                 // Window "glass"
-                textured(node("pane0", cubeMesh, "window", translate(-0.875, -0.9, 0), scale(0.8, 0.8, 0.7))),
-                textured(node("pane1", cubeMesh, "window", translate(0.875, -0.9, 0), scale(0.8, 0.8, 0.7))),
-                textured(node("pane2", cubeMesh, "window", translate(-0.875, 0.9, 0), scale(0.8, 0.8, 0.7))),
-                textured(node("pane3", cubeMesh, "window", translate(0.875, 0.9, 0), scale(0.8, 0.8, 0.7))),
+                node("pane0", cubeMesh, "window", translate(-0.875, -0.9, 0), scale(0.8, 0.8, 0.7)),
+                node("pane1", cubeMesh, "window", translate(0.875, -0.9, 0), scale(0.8, 0.8, 0.7)),
+                node("pane2", cubeMesh, "window", translate(-0.875, 0.9, 0), scale(0.8, 0.8, 0.7)),
+                node("pane3", cubeMesh, "window", translate(0.875, 0.9, 0), scale(0.8, 0.8, 0.7)),
 
-                textured(node("sun", sphereMesh, "sun", translate(0.875, 0.9, -11.5), scale(0.8, 0.8, 0.8)), sunTexture, BUMP_MAPPING),
+                textured(node("sun", sphereMesh, "sun", translate(0.875, 0.9, -11.5), scale(0.8, 0.8, 0.8)), sunTexture),
 
-                light("windowLight", [-0.875, -0.9, 0], [1, 2, .4], [0, -1, 1]),
+                light("windowLight", [-0.875, -0.9, 0], [1, 2, 0.4], [0, -1, 1]),
               ]
             },
           ]
@@ -328,7 +376,7 @@ const scene = {
           name: "leftWall",
           joint: translate(-5, 0, 0),
           children: [
-            textured(node("leftWallFace", wallMesh, "wall", translate(0, 1.1, 0), rotateZ(-Math.PI / 2), rotateY(Math.PI / 2), scale(5, 1, 3)), wallTexture, TEXTURE_NORMAL_MAPPING, wallNormalMap),
+            textured(node("leftWallFace", wallMesh, "wall", translate(0, 1.1, 0), rotateZ(-Math.PI / 2), rotateY(Math.PI / 2), scale(5, 1, 3)), wallTexture, NORMAL_MAPPING, wallNormalMap),
           ]
         },
       ]
@@ -340,100 +388,32 @@ const scene = {
 
     light("ceilingLight", [0, 3.8, 0]),
     light("sideLight", [2.5, 4.5, 1]),
-    // Floor light to simulate ray bounces 
+    // Floor light to simulate ray bounces
     light("floorLight", [3.2, -1.9, 3.5], [0.3, 0.3, 0.3]),
-
 
     /////////////////////////////////////////////////////////////////////
     // Floor
     /////////////////////////////////////////////////////////////////////
 
     {
-        name: "floor",
-        joint: translate(0, -1.8, 0),
-        children: [
-            textured(node("floor", floorMesh, "floor", translate(0, -0.1, 0), scale(5, 1, 5)), floorTexture, TEXTURE_NORMAL_MAPPING, floorNormalMap),
-            textured(node("mat", cylinderMesh, "default",  translate(0, 0.01, 0), scale(2.8, 0.01, 2.8)), playmatTexture, TEXTURE_NORMAL_MAPPING, playmatNormalMap),
-
-            textured(node("cone", coneMesh, "beachBall", translate(3.2, 0.81, 2.6), scale(0.8, 0.8, 0.8)), beachBallTexture, BUMP_MAPPING),
-            textured(node("ball", sphereMesh, "beachBall", translate(-1, 0.3, -2), scale(0.3, 0.3, 0.3)), beachBallTexture, TEXTURE_NORMAL_MAPPING, beachBallNormalMap),
-            {
-            name: "playmat",
-            joint: translate(-1.0, 0.1, 0.6),
-            children: [
-                
-
-
+      name: "floor",
+      joint: translate(0, -1.8, 0),
+      children: [
+        textured(node("floorFace", floorMesh, "floor", translate(0, -0.1, 0), scale(5, 1, 5)), floorTexture, NORMAL_MAPPING, floorNormalMap),
+        textured(node("mat", cylinderMesh, "default", translate(0, 0.01, 0), scale(2.8, 0.01, 2.8)), playmatTexture, NORMAL_MAPPING, playmatNormalMap),
+        textured(node("cone", coneMesh, "beachBall", translate(3.2, 0.81, 2.6), scale(0.8, 0.8, 0.8)), beachBallTexture),
+        textured(node("ball", sphereMesh, "beachBall", translate(1, 0.3, -1), scale(0.3, 0.3, 0.3)), beachBallTexture, NORMAL_MAPPING, beachBallNormalMap),
+        {
+          name: "playmat",
+          joint: translate(-1.0, 0.1, 0.6),
+          children: [
             node("cube0", cubeMesh, "cubeHexagon", translate(1.4, 0.11, 1.0), scale(0.2, 0.2, 0.2)),
             node("cube1", cubeMesh, "cubeHexagon", translate(-0.6, 0.11, 1.2), scale(0.2, 0.2, 0.2)),
             node("cube2", cubeMesh, "cubeHexagon", translate(-1.8, 0.11, 0.6), scale(0.2, 0.2, 0.2)),
-            
-            {
-            name: "Baby Gen",
-            joint: multiply(translate(0, -0.09, -0.1), scale(0.5, 0.5, 0.5)),
-            children: [
-                textured(node("base", cylinderMesh, "ivory", translate(0, 0.35, 0), scale(0.60, 0.35, 0.60)), ivoryTexture, TEXTURE_NORMAL_MAPPING, ivoryNormalMap),
-                node("baseFoot", torusMesh, "charcoal", translate(0, 0.145, 0), scale(0.58, 0.58, 0.58)),
-                node("baseSeam", cylinderMesh, "charcoal", translate(0, 0.685, 0), scale(0.61, 0.015, 0.61)),
-                {
-                name: "basePivot",
-                joint: translate(0, 0.70, 0),
-                children: [
-                    node("baseCollar", cylinderMesh, "charcoal", translate(0, 0.15, 0), scale(0.43, 0.15, 0.43)),
-                    {
-                    name: "shoulderPivot",
-                    joint: translate(0, 0.40, 0),
-                    children: [
-                        ...jointRings("shoulder", 0.43),
-                        ...segment("upperArm", upperLength, 0.22, [0.43, 0.39]),
-                        {
-                        name: "elbowPivot",
-                        joint: translate(0, upperLength, 0),
-                        children: [
-                            ...jointRings("elbow", 0.39),
-                            ...segment("forearm", foreLength, 0.19, [0.39, 0.30]),
-                            {
-                            name: "wristPivot",
-                            joint: translate(0, foreLength, 0),
-                            children: [
-                                ...jointRings("wrist", 0.30),
-                                node("wristCollar", cylinderMesh, "charcoal", translate(0, 0.34, 0), scale(0.24, 0.16, 0.24)),
-                                node("wristCamera", cubeMesh, "charcoal", translate(0, 0.36, 0.28), scale(0.11, 0.09, 0.07)),
-                                node("wristLens", sphereMesh, "charcoal", translate(0, 0.46, 0.28), scale(0.04, 0.04, 0.04)),
-                                {
-                                name: "gripperPivot",
-                                joint: translate(0, 0.50, 0),
-                                children: [
-                                    node("gripperPalm", cubeMesh, "charcoal", translate(0, 0.13, 0), scale(0.34, 0.13, 0.22)),
-                                    light("gripperLight", [0, 0.13, 0.26], [1, 0, 0], [0, 1, 0]),
-                                    ...[["Left", -1], ["Right", 1]].map(([hand, side]) => ({
-                                    name: `fingerPivot${hand}`,
-                                    joint: translate(side * 0.25, 0.26, 0),
-                                    children: [
-                                        node(`fingerUpper${hand}`, cubeMesh, "ivory", translate(0, 0.17, 0), scale(0.075, 0.17, 0.10)),
-                                        {
-                                        name: `fingerTipPivot${hand}`,
-                                        joint: translate(0, 0.34, 0),
-                                        children: [
-                                            node(`fingerTip${hand}`, cubeMesh, "rubber", translate(0, 0.13, 0), scale(0.075, 0.13, 0.10))
-                                        ]
-                                        }
-                                    ]
-                                    }))
-                                ]
-                                }
-                            ]
-                            }
-                        ]
-                        }
-                  ]
-                }
-              ]
-            }
+            babyGen,
           ]
         }
       ]
-    }     ]
     },
   ]
 };
@@ -455,7 +435,7 @@ vertEditor.value = VERTEX_SHADER;
 fragEditor.value = FRAGMENT_SHADER;
 
 const UNIFORMS = ["uModelView", "uProjection", "uLightPos", "uLightColor", "uSpotDir", "uCutoff",
-                  "uColor", "uKa", "uKd", "uKs", "uShininess",  "uMapping", "uAlpha", "uTexture", "uNormalMap"];
+                  "uColor", "uKa", "uKd", "uKs", "uShininess", "uAlpha", "uMapping", "uTexture", "uNormalMap"];
 let program;
 const uniforms = {};
 
@@ -466,8 +446,8 @@ function updateProgram() {
     program = prog;
     gl.useProgram(program);
     for (const name of UNIFORMS) uniforms[name] = gl.getUniformLocation(program, name);
-    gl.uniform1i(uniforms["uTexture"], 0);  
-    gl.uniform1i(uniforms["uNormalMap"], 1);  
+    gl.uniform1i(uniforms.uTexture, 0);
+    gl.uniform1i(uniforms.uNormalMap, 1);
     shaderError.textContent = "";
   } catch (e) {
     shaderError.textContent = e.message.replace(/\0/g, "");  // some drivers end the log with \0
@@ -486,46 +466,16 @@ function updateFrames(root, rootFrame) {
   }
 }
 
-const JOINTS = {
-  basePivot: rotateY,
-  shoulderPivot: rotateZ,
-  elbowPivot: rotateZ,
-  wristPivot: rotateZ,
-  gripperPivot: rotateY,
-  fingerPivotLeft: rotateZ,
-  fingerPivotRight: rotateZ,
-  fingerTipPivotLeft: rotateZ,
-  fingerTipPivotRight: rotateZ,
-};
-
-const startPose = {
-  basePivot: 0, shoulderPivot: -30, elbowPivot: -80, wristPivot: -70, gripperPivot: 0,
-  fingerPivotLeft: -8, fingerPivotRight: 8, fingerTipPivotLeft: -12, fingerTipPivotRight: 12,
-};
-
-function setJoint(name, degrees) {
-  nodes[name].pose = multiply(nodes[name].joint, JOINTS[name](rad(degrees)));
-}
-for (const name in JOINTS) setJoint(name, startPose[name]);
-
 gl.enable(gl.DEPTH_TEST);
-
-
 gl.enable(gl.BLEND);
 gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
 gl.clearColor(0.53, 0.81, 0.92, 1);
 const projection = perspective(Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
 
 // Interactive controls
-// mouse drag
-let dragRotX = -0.04, dragRotY = 0.27;
+
+let dragRotX = 0.319, dragRotY = 0.33;  // mouse drag
 let cameraPos = [0, 0, -12];
-
-
-const cameraInfo = document.getElementById("cameraInfo");
-document.getElementById("copyCamera").addEventListener("click", () => navigator.clipboard.writeText(cameraInfo.textContent));
-// let camX = 0, camY = 0, camZ = -10.8;  // arrow keys, w, s
 let sliderAngle = 0;                    // degrees
 let spinning = false, spinAngle = 0;    // Start/Stop button
 
@@ -565,7 +515,7 @@ document.getElementById("slider").addEventListener("input", e => {
 });
 document.getElementById("spinButton").addEventListener("click", () => spinning = !spinning);
 
-function uploadLights(view) {
+function updateLights(view) {
   const positions = [], colors = [], directions = [], cutoffs = [];
   for (const node of lightNodes) {
     const frame = multiply(view, node.frame);
@@ -574,6 +524,11 @@ function uploadLights(view) {
     colors.push(...node.light.color);
     cutoffs.push(node.light.cutoff);
   }
+
+  // Moving sunbeam effect
+  directions[2] = 0;  // don't change the z component for the window's cone while dragging/rotating the scene
+  directions[2] = normalize(directions)[2];
+
   gl.uniform3fv(uniforms.uLightPos, new Float32Array(positions));
   gl.uniform3fv(uniforms.uSpotDir, new Float32Array(directions));
   gl.uniform3fv(uniforms.uLightColor, new Float32Array(colors));
@@ -587,7 +542,7 @@ function drawNode(node, view) {
   gl.uniform1f(uniforms.uKd, m.Kd);
   gl.uniform1f(uniforms.uKs, m.Ks);
   gl.uniform1f(uniforms.uShininess, m.shininess);
-  gl.uniform1f(uniforms.uAlpha, m.uAlpha);
+  gl.uniform1f(uniforms.uAlpha, m.alpha ?? 1);
 
   const texture = node.texture ?? m.texture;
   gl.uniform1i(uniforms.uMapping, texture ? (node.mapping ?? BUMP_MAPPING) : NO_MAPPING);
@@ -620,7 +575,7 @@ function render(time) {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   // Camera moves with the keys; the light stays fixed
-  const view = translate(cameraPos[0], cameraPos[1], cameraPos[2]);
+  const view = translate(...cameraPos);
   gl.uniformMatrix4fv(uniforms.uProjection, false, projection);
 
   // Whole-model rotation
@@ -628,10 +583,8 @@ function render(time) {
   scene.pose = multiply(rotateY(dragRotY), rotateX(dragRotX), axisRotation);
 
   updateFrames(scene, identity());
-  uploadLights(view);
+  updateLights(view);
   drawTree(scene, view);
-  cameraInfo.textContent = `// mouse drag\nlet dragRotX = ${+dragRotX.toFixed(3)}, dragRotY = ${+dragRotY.toFixed(3)};\nlet cameraPos = [${cameraPos.map(v => +v.toFixed(2)).join(", ")}];`;
   requestAnimationFrame(render);
 }
 requestAnimationFrame(render);
-

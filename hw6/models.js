@@ -125,33 +125,25 @@ function createTorus(segments, R = 1.0, r = 0.25, uRepeat = 4) {
   return { positions: new Float32Array(pos), normals: new Float32Array(nrm), tangents: new Float32Array(tang), texCoords: new Float32Array(tex), indices: new Uint16Array(idx) };
 }
 
-
 function createCone(segments, uRepeat = 3) {
-  const pos = [], nrm = [], tex = [], tang = [], idx = [];
+  const pos = [], nrm = [], tang = [], tex = [], idx = [];
 
-   const hypot = Math.hypot(1, 2);  // radius is 1, height is -1 to +1 = 2
+  // Side
+  const hypot = Math.hypot(1, 2);  // radius is 1, height is -1 to +1 = 2
   for (let i = 0; i <= segments; i++) {
-    const u = i / segments;
-
-
-    const a = u * Math.PI * 2;
-    const c = Math.cos(a);
-    const s = Math.sin(a);
-    const nx = 2 * c / hypot, ny = 1 / hypot, nz = 2 * s / hypot;
-    
-    
+    const u = i / segments, a = u * Math.PI * 2, s = Math.sin(a), c = Math.cos(a);
+    const nx = 2 * s / hypot, ny = 1 / hypot, nz = 2 * c / hypot;
     pos.push(s, -1, c,  0, 1, 0);
-    nrm.push(nz, ny, nx,  nz, ny, nx);
-    
-    tex.push(u * uRepeat, 0, u * uRepeat, 1);   
-
+    nrm.push(nx, ny, nz,  nx, ny, nz);
     tang.push(c, 0, -s,  c, 0, -s);  // give the apex the same tangent as the base
+    tex.push(u * uRepeat, 0,  u * uRepeat, 1);
   }
   for (let i = 0; i < segments; i++) {
     const b = i * 2;
     idx.push(b, b + 2, b + 1);
   }
 
+  // Cap
   const center = pos.length / 3;
   pos.push(0, -1, 0);
   nrm.push(0, -1, 0);
@@ -169,6 +161,5 @@ function createCone(segments, uRepeat = 3) {
     idx.push(center, b, a);
   }
 
-  return { positions: new Float32Array(pos), normals: new Float32Array(nrm), texCoords: new Float32Array(tex), tangents: new Float32Array(tang), indices: new Uint16Array(idx) };
+  return { positions: new Float32Array(pos), normals: new Float32Array(nrm), tangents: new Float32Array(tang), texCoords: new Float32Array(tex), indices: new Uint16Array(idx) };
 }
-
