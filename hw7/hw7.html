@@ -19,10 +19,11 @@
       white-space: pre;
     }
     #fragEditor { height: 614px; }
-    .layout > div:last-child { margin-top: 15px; }
+    .layout > div:nth-child(n+2) { margin-top: 15px; }
     #shaderError { color: #f66; white-space: pre-wrap; width: 400px; margin: 0; }
     .controls { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
     .control-row { display: flex; align-items: center; gap: 10px; }
+    .control-row:has(input:disabled) { color: #666; }
   </style>
 </head>
 
@@ -62,6 +63,22 @@
         </div>
       </div>
     </div>
+
+    <div>
+      <label for="method">Glass:</label><br>
+      <select id="method">
+        <option value="0">Dominant ray (F &gt; 0.5)</option>
+        <option value="1" selected>Fresnel blend</option>
+        <option value="2">Monte Carlo</option>
+      </select>
+      <div class="controls">
+        <div class="control-row">
+          <label for="samples">Samples:</label>
+          <input type="range" id="samples" min="1" max="64" value="16">
+          <span id="samplesValue">16</span>
+        </div>
+      </div>
+    </div>
   </div>
 
 <script id="vertex-shader" type="x-shader/x-vertex">#version 300 es
@@ -79,6 +96,8 @@ uniform vec2 u_resolution;
 uniform int u_maxBounces;
 uniform float u_ambientStrength; //Ambient fill light for better visual
 uniform vec2 u_cameraOrbit;
+uniform int u_glassMethod;
+uniform int u_samples;
 
 out vec4 fragColor;
 
@@ -127,6 +146,8 @@ void initScene(float time) {
 
     float b = time * 0.3;
     cube = Cube(vec3(sin(b) * 2.0, cos(b * 1.5) + 0.5, -9.0 + cos(b * 0.7)), 0.8, vec3(0.3, 0.8, 0.3), 0.85);
+
+    glassSphere = Sphere(vec3(-1.2, -0.7 + 0.3 * sin(time * 0.7), -4.5), 1.0, vec3(0.95, 0.98, 1.0));
 }
 
 bool intersectSphere(Ray ray, Sphere s, out float t) {
@@ -162,14 +183,31 @@ bool intersectCube(Ray ray, out float t, out vec3 normal) {
 }
 
 //eta = n1 / n2
-//vec3 refraction(vec3 I, vec3 N, float eta) {
-//    <!-- insert your code here -->
-//}
+vec3 refraction(vec3 I, vec3 N, float eta) {
+    // insert your code here
+    float cosi = clamp(dot(I, N), -1.0, 1.0);
+    float etai = 1.0, etat = eta;
+    vec3 n = N;
+    if (cosi < 0.0) cosi = -cosi;
+    else {
+        float temp = etai;
+        etai = etat;
+        etat = temp;
+        n = -N;
+    }
+    float etaRatio = etai / etat;
+    float k = 1.0 - etaRatio * etaRatio * (1.0 - cosi * cosi);
+    if (k < 0.0) return vec3(0.0); // total internal reflection
+    else return normalize(etaRatio * I + (etaRatio * cosi - sqrt(k)) * n);
+
+}
 
 // Schlick approximation
-//float schlick(float cosine, float ref_idx) {
-//    <!-- insert your code here -->
-//}
+float schlick(float cosine, float ref_idx) {
+    float r0 = (1.0 - ref_idx) / (1.0 + ref_idx);
+    r0 = r0 * r0;
+    return r0 + (1.0 - r0) * pow(1.0 - cosine, 5.0);
+}
 
 bool intersectFloor(Ray ray, out float t) {
     if (abs(ray.direction.y) < 0.0001) return false;
@@ -204,68 +242,123 @@ HitData traceScene(Ray ray, bool includeLight) {
         hit = HitData(true, t, p, (p - sphere.center) / sphere.radius, sphere.color, 0.0, false, false);
     }
 
+    if (intersectSphere(ray, glassSphere, t) && t < hit.t) {
+        vec3 p = ray.origin + ray.direction * t;
+        hit = HitData(true, t, p, (p - glassSphere.center) / glassSphere.radius, glassSphere.color, 0.0, false, true);
+    }
+
     return hit;
 }
 
-vec3 trace(Ray ray) {
+float glassFresnel(Ray ray, HitData hit, out vec3 reflected, out vec3 refracted) {
+    bool inside = dot(ray.direction, hit.normal) > 0.0;
+    reflected = reflect(ray.direction, hit.normal);
+    refracted = refraction(ray.direction, hit.normal, GLASS_IOR);
+    bool total_internal_reflection = refracted == vec3(0.0);
+    if (total_internal_reflection) return 1.0;
+    float cosine = inside ? dot(refracted, hit.normal) : -dot(ray.direction, hit.normal);
+    return schlick(cosine, GLASS_IOR);
+}
+
+bool shadeSurface(HitData hit, inout Ray ray, inout vec3 color, inout vec3 attenuation) {
+    if (!hit.hit) {
+        float t = 0.5 * (ray.direction.y + 1.0);
+        color += attenuation * mix(vec3(0.09, 0.12, 0.18), vec3(0.18, 0.21, 0.27), t);  // sky
+        return false;
+    }
+
+    if (hit.isLight) {
+        color += attenuation * lightSphere.color * LIGHT_POWER;
+        return false;
+    }
+
+    vec3 toLight = lightSphere.center - hit.point;
+    float lightDist = length(toLight);
+    vec3 lightDir = toLight / lightDist;
+
+    HitData blocker = traceScene(Ray(hit.point + hit.normal * 0.001, lightDir), false);
+    float visible = blocker.hit && blocker.t < lightDist ? 0.0 : 1.0;
+    float diff = max(dot(hit.normal, lightDir), 0.0);
+    float falloff = 1.0 / (1.0 + 0.1 * lightDist * lightDist);
+
+    //  (optional) Ambient fill light approximates indirect light we don't trace.
+    vec3 shading = hit.color * (LIGHT_POWER * diff * falloff * visible + u_ambientStrength);
+    color += attenuation * shading * (1.0 - hit.reflectivity);
+
+    if (hit.reflectivity == 0.0) return false;
+    attenuation *= hit.reflectivity;
+    ray = Ray(hit.point + hit.normal * 0.001, reflect(ray.direction, hit.normal));
+    return true;
+}
+
+float random(inout float seed) {
+    seed += 1.0;
+    return fract(sin(dot(vec3(gl_FragCoord.xy, seed), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+}
+
+vec3 traceSingle(Ray ray, int maxBounces, bool stochastic, inout float seed) {
     vec3 color = vec3(0.0);
     vec3 attenuation = vec3(1.0);
 
     //use loop to simulate the recursive process as GLSL doesn't support recursions
-    for (int bounce = 0; bounce < u_maxBounces; bounce++) {
+    for (int bounce = 0; bounce < maxBounces; bounce++) {
         HitData hit = traceScene(ray, true);
 
-        if (!hit.hit) {
-            float t = 0.5 * (ray.direction.y + 1.0);
-            color += attenuation * mix(vec3(0.09, 0.12, 0.18), vec3(0.18, 0.21, 0.27), t);  // sky
-            break;
+        if (hit.hit && hit.isGlass) {
+            vec3 reflected, refracted;
+            float schlick_value = glassFresnel(ray, hit, reflected, refracted);
+            float threshold = stochastic ? random(seed) : 0.5;
+            vec3 direction = schlick_value > threshold ? reflected : refracted;
+            ray = Ray(hit.point + direction * 0.001, direction);
+            attenuation *= hit.color;
+            continue;
         }
 
-        if (hit.isLight) {
-            color += attenuation * lightSphere.color * LIGHT_POWER;
-            break;
-        }
-
-        // Refraction: (option 1)either reflects or refracts the ray, whichever Schlick says is stronger
-        // (option 2): finalColor = hit.color * (F * reflectionColor + (1.0 - F) * refractionColor)
-        // (option 3): Monte Carlo Sampling (multiple rays per pixel), reflect with probability F (random() < schlick_value), else refract, and average many samples per pixel
-        //<!-- if (hit.isGlass) {
-        //    <!-- insert your code here -->
-
-        //    vec3 direction;
-        //    if (total_internal_reflection || schlick_value > 0.5) {
-                //direction = reflection ray
-        //        <!-- insert your code here -->
-        //    } else {
-                //direction = refraction ray
-        //        <!-- insert your code here -->
-        //    }
-
-        //    ray = Ray(hit.point + direction * 0.001, direction);
-        ////Use Schlick approximation to determine contributions from reflection and refraction
-        //    attenuation *= hit.color;
-        //    continue;
-        //}
-
-        vec3 toLight = lightSphere.center - hit.point;
-        float lightDist = length(toLight);
-        vec3 lightDir = toLight / lightDist;
-
-        HitData blocker = traceScene(Ray(hit.point + hit.normal * 0.001, lightDir), false);
-        float visible = blocker.hit && blocker.t < lightDist ? 0.0 : 1.0;
-        float diff = max(dot(hit.normal, lightDir), 0.0);
-        float falloff = 1.0 / (1.0 + 0.1 * lightDist * lightDist);
-
-        //  (optional) Ambient fill light approximates indirect light we don't trace.
-        vec3 shading = hit.color * (LIGHT_POWER * diff * falloff * visible + u_ambientStrength);
-        color += attenuation * shading * (1.0 - hit.reflectivity);
-
-        if (hit.reflectivity == 0.0) break;
-        attenuation *= hit.reflectivity;
-        ray = Ray(hit.point + hit.normal * 0.001, reflect(ray.direction, hit.normal));
+        if (!shadeSurface(hit, ray, color, attenuation)) break;
     }
 
     return color;
+}
+
+vec3 traceBlend(Ray ray, inout float seed) {
+    vec3 color = vec3(0.0);
+    vec3 attenuation = vec3(1.0);
+
+    for (int bounce = 0; bounce < u_maxBounces; bounce++) {
+        HitData hit = traceScene(ray, true);
+
+        if (hit.hit && hit.isGlass) {
+            vec3 reflected, refracted;
+            float F = glassFresnel(ray, hit, reflected, refracted);
+            int remaining = u_maxBounces - bounce - 1;
+
+            vec3 reflectionColor = traceSingle(Ray(hit.point + reflected * 0.001, reflected), remaining, false, seed);
+            vec3 refractionColor = F < 1.0 ? traceSingle(Ray(hit.point + refracted * 0.001, refracted), remaining, false, seed) : vec3(0.0);
+
+            color += attenuation * hit.color * (F * reflectionColor + (1.0 - F) * refractionColor);
+            break;
+        }
+
+        if (!shadeSurface(hit, ray, color, attenuation)) break;
+    }
+
+    return color;
+}
+
+vec3 trace(Ray ray) {
+    float seed = mod(u_time, 10.0) * 10.0;
+
+    // Refraction: (option 1)either reflects or refracts the ray, whichever Schlick says is stronger
+    // (option 2): finalColor = hit.color * (F * reflectionColor + (1.0 - F) * refractionColor)
+    // (option 3): Monte Carlo Sampling (multiple rays per pixel), reflect with probability F (random() < schlick_value), else refract, and average many samples per pixel
+    if (u_glassMethod == 0) return traceSingle(ray, u_maxBounces, false, seed);
+    if (u_glassMethod == 1) return traceBlend(ray, seed);
+
+    vec3 color = vec3(0.0);
+    for (int i = 0; i < u_samples; i++) {
+        color += traceSingle(ray, u_maxBounces, true, seed);
+    }
+    return color / float(u_samples);
 }
 
 void main() {
@@ -338,9 +431,14 @@ void main() {
 
   const bounces = document.getElementById("bounces");
   const ambient = document.getElementById("ambient");
-  for (const slider of [bounces, ambient]) {
+  const method = document.getElementById("method");
+  const samples = document.getElementById("samples");
+  for (const slider of [bounces, ambient, samples]) {
     slider.addEventListener("input", () => document.getElementById(slider.id + "Value").textContent = slider.value);
   }
+  const updateSamplesEnabled = () => samples.disabled = method.value !== "2";
+  method.addEventListener("input", updateSamplesEnabled);
+  updateSamplesEnabled();
 
   // Dragging orbits the camera
   let pitch = 0, yaw = 0;
@@ -365,6 +463,8 @@ void main() {
     gl.uniform1i(uniform("u_maxBounces"), bounces.value);
     gl.uniform1f(uniform("u_ambientStrength"), ambient.value);
     gl.uniform2f(uniform("u_cameraOrbit"), pitch, yaw);
+    gl.uniform1i(uniform("u_glassMethod"), method.value);
+    gl.uniform1i(uniform("u_samples"), samples.value);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
   requestAnimationFrame(render);
