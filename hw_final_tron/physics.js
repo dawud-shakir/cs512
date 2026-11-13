@@ -3,6 +3,8 @@ const GRAVITY = 30;
 const SUBSTEPS = 8;
 const MAX_SPEED = 60;
 const LANE_X = 18.4;
+const FLIPPER_Y = 4.6;
+const GATE_HALF = 1.2;
 
 function arc(cx, cy, r, from, to, n = 10) {
   const pts = [];
@@ -36,13 +38,43 @@ function makeFlipper(pivot, side) {
   };
 }
 
+const FIELDS = [
+  { x0: 0, y0: 0, x1: 20, y1: 36 },
+  { x0: 2.2, y0: 37.2, x1: 16.2, y1: 63 },
+  { x0: 2.2, y0: 64.2, x1: 16.2, y1: 80 },
+];
+
+function gate(x, below, above) {
+  const y = above.y0 + FLIPPER_Y;
+  const left = [x - 4.3, y], right = [x + 4.3, y];
+  return {
+    x, below,
+    walls: [
+      { a: [above.x0, y + 3.4], b: left },
+      { a: [above.x1, y + 3.4], b: right },
+      ...chain([left, [x - GATE_HALF, above.y0 + 1], [x - GATE_HALF, below.y1]]),
+      ...chain([right, [x + GATE_HALF, above.y0 + 1], [x + GATE_HALF, below.y1]]),
+    ],
+    flippers: [makeFlipper(left, +1), makeFlipper(right, -1)],
+  };
+}
+
+const GATES = [
+  gate(9.2, FIELDS[0], FIELDS[1]),
+  gate(9.2, FIELDS[1], FIELDS[2]),
+];
+
 const table = {
-  width: 20,
-  height: 36,
+  fields: FIELDS,
+  gates: GATES,
   walls: [
     ...chain([
       [0, 8], [0, 32],
       ...arc(4, 32, 4, Math.PI, Math.PI / 2),
+      [8, 36],
+    ]),
+    ...chain([
+      [10.4, 36],
       ...arc(16, 32, 4, Math.PI / 2, 0),
       [20, 0],
     ]),
@@ -52,15 +84,25 @@ const table = {
     { a: [LANE_X, 8], b: [13.0, 4.6] },
     { a: [5.4, 4.6], b: [5.4, -1], hidden: true },
     { a: [13.0, 4.6], b: [13.0, -1], hidden: true },
+    ...chain([[2.2, 45.2], [2.2, 59], [6.2, 63], [8, 63]]),
+    ...chain([[10.4, 63], [12.2, 63], [16.2, 59], [16.2, 45.2]]),
+    ...chain([[2.2, 72.2], [2.2, 73], ...arc(9.2, 73, 7, Math.PI, 0, 24), [16.2, 72.2]]),
+    ...GATES.flatMap(g => g.walls),
   ],
   bumpers: [
     { c: [6, 24], r: 1.2, kick: 18, points: 100, lit: 0 },
     { c: [12.4, 24], r: 1.2, kick: 18, points: 100, lit: 0 },
     { c: [9.2, 19], r: 1.2, kick: 18, points: 100, lit: 0 },
+    { c: [5.6, 51], r: 1.0, kick: 18, points: 200, lit: 0 },
+    { c: [12.8, 51], r: 1.0, kick: 18, points: 200, lit: 0 },
+    { c: [6.2, 75.5], r: 1.0, kick: 18, points: 500, lit: 0 },
+    { c: [12.2, 75.5], r: 1.0, kick: 18, points: 500, lit: 0 },
+    { c: [9.2, 77.5], r: 1.0, kick: 18, points: 500, lit: 0 },
   ],
   flippers: [
     makeFlipper([5.4, 4.6], +1),
     makeFlipper([13.0, 4.6], -1),
+    ...GATES.flatMap(g => g.flippers),
   ],
 };
 
@@ -73,6 +115,7 @@ const game = {
   ball: { p: [0, 0], v: [0, 0], rotation: identity() },
   score: 0,
   balls: 3,
+  field: 0,
   state: "ready",
   charge: 0,
   charging: false,
@@ -81,7 +124,7 @@ const game = {
 const ballOnPlunger = () => game.ball.p[0] > LANE_X && game.ball.p[1] < 2;
 
 function resetBall() {
-  game.ball.p = [(LANE_X + table.width) / 2, 0.5 + BALL_RADIUS];
+  game.ball.p = [(LANE_X + FIELDS[0].x1) / 2, 0.5 + BALL_RADIUS];
   game.ball.v = [0, 0];
   game.ball.rotation = identity();
   game.state = "ready";
@@ -104,7 +147,9 @@ function setPlunger(down) {
   game.charge = 0;
 }
 
-function setFlipper(i, down) { table.flippers[i].pressed = down; }
+function setFlipper(i, down) {
+  for (const f of table.flippers) if (f.side === (i === 0 ? 1 : -1)) f.pressed = down;
+}
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
@@ -195,6 +240,7 @@ function stepPhysics(dt) {
     if (d > 1e-6) ball.rotation = multiply(rotateAxis([-dy / d, dx / d, 0], d / BALL_RADIUS), ball.rotation);
   }
   ball.rotation = orthonormalize(ball.rotation);
+  game.field = Math.max(0, FIELDS.findLastIndex(f => ball.p[1] > f.y0 + FLIPPER_Y));
 
   if (game.state === "play" && ballOnPlunger() && ball.v[1] <= 0) game.state = "ready";
 

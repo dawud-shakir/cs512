@@ -232,12 +232,14 @@ const GROUND = { x0: -100, y0: -90, x1: 120, y1: 150, cell: 4 };
 const BLOCKS = [
   [-15, -4, -7, 6, 2.5], [-11, 9, -4, 17, 5], [-18, 14, -12, 26, 8], [-9, 22, -4, 30, 3.5], [-16, 31, -6, 40, 6],
   [24, -2, 31, 7, 4], [25, 10, 33, 20, 7], [30, 22, 38, 30, 3], [25, 28, 31, 38, 5],
-  [-6, 45, 6, 52, 4], [9, 44, 18, 50, 7], [21, 43, 30, 54, 3], [-20, 46, -10, 58, 9], [34, 40, 44, 50, 10],
+  [-8, 50, -2, 58, 4], [21, 57, 28, 64, 7], [21, 43, 30, 54, 3], [-20, 46, -10, 58, 9], [34, 40, 44, 50, 10],
+  [-14, 64, -6, 74, 6], [24, 68, 33, 78, 4], [-20, 78, -10, 90, 9], [22, 84, 32, 92, 6],
+  [2, 88, 10, 96, 5], [12, 86, 20, 94, 8], [-10, 96, 0, 104, 4], [24, 98, 34, 108, 7],
 ];
 
 const CAMERA = {
-  wide: { eye: [10, -19, 29], target: [10, 14, 0] },
-  tall: { eye: [10, -6, 42], target: [10, 15.5, 0] },
+  wide: { eye: [0, -37, 29], target: [0, -4, 0] },
+  tall: { eye: [0, -24, 42], target: [0, -2.5, 0] },
 };
 
 const canvas = document.getElementById("glcanvas");
@@ -422,13 +424,13 @@ function loadTexture(url) {
   return texture;
 }
 
-const playfieldTexture = loadTexture("textures/neon/playfield.png");
+const fieldTextures = ["textures/neon/playfield.png", "textures/neon/field2.png", "textures/neon/field3.png"].map(loadTexture);
 const gridTexture = loadTexture("textures/neon/grid.png");
 
 const palette = structuredClone(PALETTES[0]);
 
 const MATERIALS = {
-  playfield: { color: [0.04, 0.05, 0.08], ks: 0.5, shininess: 40, emissive: palette.insert, texture: playfieldTexture },
+  playfield: { color: [0.04, 0.05, 0.08], ks: 0.5, shininess: 40, emissive: palette.insert },
   ground: { color: [0.02, 0.025, 0.04], ks: 0.2, shininess: 16, emissive: palette.grid, texture: gridTexture,
             repeat: [(GROUND.x1 - GROUND.x0) / GROUND.cell, (GROUND.y1 - GROUND.y0) / GROUND.cell] },
   block: { color: [0.06, 0.075, 0.1], ks: 0.2, shininess: 16, top: palette.block },
@@ -445,6 +447,8 @@ const MATERIALS = {
   steel: { color: [0.15, 0.16, 0.18], ks: 0.8, shininess: 80, reflect: 0.4 },
 };
 
+const fieldMaterials = fieldTextures.map(texture => ({ ...MATERIALS.playfield, texture }));
+
 function updatePalette() {
   const target = PALETTES[(3 - game.balls) % PALETTES.length];
   for (const key in palette)
@@ -453,16 +457,22 @@ function updatePalette() {
 
 gl.enable(gl.DEPTH_TEST);
 
-const lerp3 = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+const lerp = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+const add = (a, b) => a.map((v, i) => v + b[i]);
+const rect = f => [f.x0, f.y0, f.x1, f.y1];
+const center = ([x0, y0, x1, y1]) => [(x0 + x1) / 2, (y0 + y1) / 2, 0];
 
-const FIT_CORNERS = [];
-for (const x of [-CABINET.rim, table.width + CABINET.rim])
-  for (const y of [CABINET.front, table.height + CABINET.rim])
-    for (const z of [CABINET.base, CABINET.wallTop]) FIT_CORNERS.push([x, y, z]);
+function fitCorners([x0, y0, x1, y1]) {
+  const corners = [];
+  for (const x of [x0 - CABINET.rim, x1 + CABINET.rim])
+    for (const y of [y0 + CABINET.front, y1 + CABINET.rim])
+      for (const z of [CABINET.base, CABINET.wallTop]) corners.push([x, y, z]);
+  return corners;
+}
 
-function fitProjection(view, W, H, insets) {
+function fitProjection(view, W, H, insets, corners) {
   let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
-  for (const c of FIT_CORNERS) {
+  for (const c of corners) {
     const [x, y, z] = transformPoint(view, c);
     xmin = Math.min(xmin, x / -z); xmax = Math.max(xmax, x / -z);
     ymin = Math.min(ymin, y / -z); ymax = Math.max(ymax, y / -z);
@@ -474,22 +484,22 @@ function fitProjection(view, W, H, insets) {
   return frustum(cx - s * W / 2, cx + s * W / 2, bottom, bottom + s * H, 1, 200);
 }
 
-let chaseEye = null, chaseTarget = null;
+let chaseEye = null, chaseTarget = null, cameraRect = null;
 
 function chaseView() {
   const [x, y] = game.ball.p, vx = game.ball.v[0];
   const eye = [x + vx * 0.02, y - 3.2, 1.85], target = [x + vx * 0.08, y + 5, 0.4];
-  chaseEye = chaseEye ? lerp3(chaseEye, eye, 0.22) : eye;
-  chaseTarget = chaseTarget ? lerp3(chaseTarget, target, 0.22) : target;
+  chaseEye = chaseEye ? lerp(chaseEye, eye, 0.22) : eye;
+  chaseTarget = chaseTarget ? lerp(chaseTarget, target, 0.22) : target;
   return lookAt(chaseEye, chaseTarget, [0, 0, 1]);
 }
 
-const TABLE_CENTER = [table.width / 2, table.height / 2, 0];
+const TABLE_CENTER = center(rect(table.fields[0]));
 const lightView = lookAt(LIGHTS[0].pos, TABLE_CENTER, [0, 0, 1]);
 
 function lightProjection() {
   const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
-  for (const [x, y, z] of FIT_CORNERS)
+  for (const [x, y, z] of table.fields.flatMap(f => fitCorners(rect(f))))
     for (const dy of [0, -1.5]) {
       const p = transformPoint(lightView, [x, y + dy, z]);
       for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i], p[i]); hi[i] = Math.max(hi[i], p[i]); }
@@ -530,25 +540,38 @@ const box = (x0, y0, z0, x1, y1, z1) =>
 const upright = rotateX(Math.PI / 2);
 const post = (x, y, r, z0, h) => multiply(translate(x, y, z0 + h / 2), upright, scale(r, h / 2, r));
 
-function drawCabinet() {
-  const { width: w, height: h } = table;
-  const { rim, front, wallTop, floor, base } = CABINET;
-  draw(cubeMesh, box(0, front, floor, w, h, 0), MATERIALS.playfield);
-  draw(cubeMesh, box(-rim, front, base, w + rim, h + rim, floor), MATERIALS.cabinet);
-  for (const [x0, y0, x1, y1] of [
-    [-rim, front, 0, h + rim],
-    [w, front, w + rim, h + rim],
-    [0, h, w, h + rim],
-    [-rim, front - 0.4, w + rim, front],
-  ]) draw(cubeMesh, box(x0, y0, floor, x1, y1, wallTop), MATERIALS.cabinet);
+function split(a, b, holes) {
+  const pieces = [];
+  for (const [h0, h1] of holes) { pieces.push([a, h0]); a = h1; }
+  return [...pieces, [a, b]];
+}
 
-  const e = 0.16, x0 = -rim, x1 = w + rim, y0 = front - 0.4, y1 = h + rim;
-  for (const [a0, b0, a1, b1] of [
-    [x0, y0, x0 + e, y1],
-    [x1 - e, y0, x1, y1],
-    [x0, y1 - e, x1, y1],
-    [x0, y0, x1, y0 + e],
-  ]) draw(cubeMesh, box(a0, b0, wallTop, a1, b1, wallTop + 0.05), MATERIALS.rail);
+function drawCabinet(field, i) {
+  const { x0, y0, x1, y1 } = field;
+  const { rim, front, wallTop, floor, base } = CABINET;
+  const y = i === 0 ? y0 + front : y0;
+  const holes = table.gates.filter(g => g.below === field)
+    .map(g => [g.x - GATE_HALF - WALL_THICK / 2, g.x + GATE_HALF + WALL_THICK / 2]);
+  draw(cubeMesh, box(x0, y, floor, x1, y1, 0), fieldMaterials[i]);
+  draw(cubeMesh, box(x0 - rim, y, base, x1 + rim, y1 + rim, floor), MATERIALS.cabinet);
+  for (const [h0, h1] of holes) draw(cubeMesh, box(h0, y1, floor, h1, y1 + rim, 0), MATERIALS.cabinet);
+
+  const walls = [
+    [x0 - rim, y, x0, y1 + rim],
+    [x1, y, x1 + rim, y1 + rim],
+    ...split(x0, x1, holes).map(([a, b]) => [a, y1, b, y1 + rim]),
+  ];
+  if (i === 0) walls.push([x0 - rim, y - 0.4, x1 + rim, y]);
+  for (const [a0, b0, a1, b1] of walls) draw(cubeMesh, box(a0, b0, floor, a1, b1, wallTop), MATERIALS.cabinet);
+
+  const e = 0.16, X0 = x0 - rim, X1 = x1 + rim, Y0 = i === 0 ? y - 0.4 : y, Y1 = y1 + rim;
+  const rails = [
+    [X0, Y0, X0 + e, Y1],
+    [X1 - e, Y0, X1, Y1],
+    ...split(X0, X1, holes).map(([a, b]) => [a, Y1 - e, b, Y1]),
+  ];
+  if (i === 0) rails.push([X0, Y0, X1, Y0 + e]);
+  for (const [a0, b0, a1, b1] of rails) draw(cubeMesh, box(a0, b0, wallTop, a1, b1, wallTop + 0.05), MATERIALS.rail);
 }
 
 function drawWall({ a, b, hidden }) {
@@ -579,7 +602,7 @@ function drawFlipper(f) {
 }
 
 function drawPlunger() {
-  const x = (LANE_X + table.width) / 2;
+  const x = (LANE_X + table.fields[0].x1) / 2;
   const pull = game.charge * 1.2;
   draw(cylinderMesh, multiply(translate(x, -0.8 - pull, 0.5), scale(0.16, 1.1, 0.16)), MATERIALS.steel);
   draw(sphereMesh, multiply(translate(x, -1.9 - pull, 0.5), scale(0.38, 0.38, 0.38)), MATERIALS.knob, 0.15 + game.charge);
@@ -592,7 +615,7 @@ function drawBall() {
 }
 
 function drawScene() {
-  drawCabinet();
+  table.fields.forEach(drawCabinet);
   table.walls.forEach(drawWall);
   table.bumpers.forEach(drawBumper);
   table.flippers.forEach(drawFlipper);
@@ -697,6 +720,9 @@ function render(insets, ballCam) {
   shadowPass = false;
   gl.disable(gl.POLYGON_OFFSET_FILL);
 
+  const field = rect(table.fields[game.field]);
+  cameraRect = cameraRect ? lerp(cameraRect, field, 0.08) : field;
+
   let projection;
   if (ballCam) {
     view = chaseView();
@@ -704,9 +730,10 @@ function render(insets, ballCam) {
   } else {
     chaseEye = chaseTarget = null;
     const tall = Math.min(1, Math.max(0, (1.1 - canvas.width / canvas.height) / 0.6));
-    view = lookAt(lerp3(CAMERA.wide.eye, CAMERA.tall.eye, tall),
-                  lerp3(CAMERA.wide.target, CAMERA.tall.target, tall), [0, 0, 1]);
-    projection = fitProjection(view, canvas.clientWidth, canvas.clientHeight, insets);
+    const c = center(cameraRect);
+    view = lookAt(add(c, lerp(CAMERA.wide.eye, CAMERA.tall.eye, tall)),
+                  add(c, lerp(CAMERA.wide.target, CAMERA.tall.target, tall)), [0, 0, 1]);
+    projection = fitProjection(view, canvas.clientWidth, canvas.clientHeight, insets, fitCorners(cameraRect));
   }
 
   gl.useProgram(program);

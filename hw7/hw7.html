@@ -105,6 +105,7 @@ const float LIGHT_POWER = 3.0;
 const float FLOOR_Y = -2.0;
 const float CHECKER_SIZE = 3.0;
 const float GLASS_IOR = 1.5;  // refractive index of the glass sphere
+const vec3 SUN_DIR = vec3(0.784, 0.588, 0.196);
 
 struct Ray {
     vec3 origin;
@@ -115,6 +116,7 @@ struct Sphere {
     vec3 center;
     float radius;
     vec3 color;
+    float reflectivity;
 };
 
 struct Cube {
@@ -135,19 +137,21 @@ struct HitData {
     bool isGlass;
 };
 
-const Sphere lightSphere = Sphere(vec3(4.0, 3.0, -4.0), 0.3, vec3(1.0, 1.0, 0.9));
+const Sphere lightSphere = Sphere(vec3(4.0, 3.0, -4.0), 0.3, vec3(1.0, 1.0, 0.9), 0.0);
 Sphere sphere;
 Sphere glassSphere;
+Sphere metalSphere;
 Cube cube;
 
 void initScene(float time) {
     float a = time * 0.5;
-    sphere = Sphere(vec3(cos(a) * 2.5, sin(a * 1.3) * 0.8, -6.0 + sin(a) * 0.5), 1.0, vec3(1.0, 0.3, 0.3));
+    sphere = Sphere(vec3(cos(a) * 2.5, sin(a * 1.3) * 0.8, -6.0 + sin(a) * 0.5), 1.0, vec3(1.0, 0.3, 0.3), 0.0);
 
     float b = time * 0.3;
     cube = Cube(vec3(sin(b) * 2.0, cos(b * 1.5) + 0.5, -9.0 + cos(b * 0.7)), 0.8, vec3(0.3, 0.8, 0.3), 0.85);
 
-    glassSphere = Sphere(vec3(-1.2, -0.7 + 0.3 * sin(time * 0.7), -4.5), 1.0, vec3(0.95, 0.98, 1.0));
+    glassSphere = Sphere(vec3(-1.2, -0.7 + 0.3 * sin(time * 0.7), -4.5), 1.0, vec3(0.95, 0.98, 1.0), 0.0);
+    metalSphere = Sphere(vec3(0.9, -1.0, -4.3), 1.0, vec3(0.9, 0.9, 0.92), 0.95);
 }
 
 bool intersectSphere(Ray ray, Sphere s, out float t) {
@@ -239,12 +243,17 @@ HitData traceScene(Ray ray, bool includeLight) {
 
     if (intersectSphere(ray, sphere, t) && t < hit.t) {
         vec3 p = ray.origin + ray.direction * t;
-        hit = HitData(true, t, p, (p - sphere.center) / sphere.radius, sphere.color, 0.0, false, false);
+        hit = HitData(true, t, p, (p - sphere.center) / sphere.radius, sphere.color, sphere.reflectivity, false, false);
+    }
+
+    if (intersectSphere(ray, metalSphere, t) && t < hit.t) {
+        vec3 p = ray.origin + ray.direction * t;
+        hit = HitData(true, t, p, (p - metalSphere.center) / metalSphere.radius, metalSphere.color, metalSphere.reflectivity, false, false);
     }
 
     if (intersectSphere(ray, glassSphere, t) && t < hit.t) {
         vec3 p = ray.origin + ray.direction * t;
-        hit = HitData(true, t, p, (p - glassSphere.center) / glassSphere.radius, glassSphere.color, 0.0, false, true);
+        hit = HitData(true, t, p, (p - glassSphere.center) / glassSphere.radius, glassSphere.color, glassSphere.reflectivity, false, true);
     }
 
     return hit;
@@ -260,10 +269,39 @@ float glassFresnel(Ray ray, HitData hit, out vec3 reflected, out vec3 refracted)
     return schlick(cosine, GLASS_IOR);
 }
 
+float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = p - i;
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
+vec3 sky(vec3 d) {
+    vec3 zenith = vec3(0.10, 0.22, 0.50);
+    vec3 horizon = vec3(0.80, 0.72, 0.62);
+    vec3 ground = vec3(0.22, 0.20, 0.18);
+    vec3 color = d.y < 0.0 ? mix(horizon, ground, min(-d.y * 4.0, 1.0)) : mix(horizon, zenith, sqrt(d.y));
+
+    if (d.y > 0.02) {
+        vec2 uv = d.xz / d.y * 0.4;
+        float n = 0.5 * noise(uv) + 0.25 * noise(uv * 2.0) + 0.125 * noise(uv * 4.0);
+        float clouds = smoothstep(0.45, 0.7, n) * smoothstep(0.02, 0.2, d.y);
+        color = mix(color, vec3(0.95, 0.95, 0.97), clouds * 0.8);
+    }
+
+    float s = max(dot(d, SUN_DIR), 0.0);
+    color += vec3(1.0, 0.9, 0.7) * (8.0 * pow(s, 600.0) + 0.3 * pow(s, 8.0));
+    return color;
+}
+
 bool shadeSurface(HitData hit, inout Ray ray, inout vec3 color, inout vec3 attenuation) {
     if (!hit.hit) {
-        float t = 0.5 * (ray.direction.y + 1.0);
-        color += attenuation * mix(vec3(0.09, 0.12, 0.18), vec3(0.18, 0.21, 0.27), t);  // sky
+        color += attenuation * sky(ray.direction);  // sky
         return false;
     }
 
