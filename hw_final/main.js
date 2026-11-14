@@ -53,7 +53,7 @@ holdControl(document.getElementById("touchLaunch"), setPlunger);
 window.addEventListener("pointerdown", e => { if (e.pointerType === "touch") setTouchMode(true); }, true);
 window.addEventListener("contextmenu", e => e.preventDefault());
 
-let ballCam = false;
+let ballCam = true;
 const cameraBtn = document.getElementById("cameraBtn");
 function toggleCamera() {
   ballCam = !ballCam;
