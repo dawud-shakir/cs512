@@ -151,8 +151,9 @@ void main() {
 const BLUR_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
-const float WEIGHTS[5] = float[5](0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
+// Precomputed weights for a 9-sample Gaussian blur
 
+const float WEIGHTS[5] = float[5](0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216); 
 in vec2 vUv;
 
 uniform sampler2D uImage;
@@ -459,6 +460,7 @@ gl.enable(gl.DEPTH_TEST);
 
 const lerp = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 const add = (a, b) => a.map((v, i) => v + b[i]);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const rect = f => [f.x0, f.y0, f.x1, f.y1];
 const center = ([x0, y0, x1, y1]) => [(x0 + x1) / 2, (y0 + y1) / 2, 0];
 
@@ -470,7 +472,7 @@ function fitCorners([x0, y0, x1, y1]) {
   return corners;
 }
 
-function fitProjection(view, W, H, insets, corners) {
+function fitProjection(view, W, H, insets, corners, zoom) {
   let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
   for (const c of corners) {
     const [x, y, z] = transformPoint(view, c);
@@ -478,10 +480,14 @@ function fitProjection(view, W, H, insets, corners) {
     ymin = Math.min(ymin, y / -z); ymax = Math.max(ymax, y / -z);
   }
   const margin = 1.04, usable = H - insets.top - insets.bottom;
-  const s = Math.max((xmax - xmin) * margin / W, (ymax - ymin) * margin / usable);
+  const fit = Math.max((xmax - xmin) * margin / W, (ymax - ymin) * margin / usable);
+  const s = fit / zoom, slack = Math.max(0, fit - s);
   const cx = (xmin + xmax) / 2, cy = (ymin + ymax) / 2;
-  const bottom = cy - s * (insets.bottom + usable / 2);
-  return frustum(cx - s * W / 2, cx + s * W / 2, bottom, bottom + s * H, 1, 200);
+  const [bx, by, bz] = transformPoint(multiply(view, board), [game.ball.p[0], game.ball.p[1], BALL_RADIUS]);
+  const fx = clamp(bx / -bz, cx - slack * W / 2, cx + slack * W / 2);
+  const fy = clamp(by / -bz, cy - slack * usable / 2, cy + slack * usable / 2);
+  const bottom = fy - s * (insets.bottom + usable / 2);
+  return frustum(fx - s * W / 2, fx + s * W / 2, bottom, bottom + s * H, 1, 200);
 }
 
 let chaseEye = null, chaseTarget = null, cameraRect = null;
@@ -491,7 +497,7 @@ function chaseView() {
   const eye = [x + vx * 0.02, y - 3.2, 1.85], target = [x + vx * 0.08, y + 5, 0.4];
   chaseEye = chaseEye ? lerp(chaseEye, eye, 0.22) : eye;
   chaseTarget = chaseTarget ? lerp(chaseTarget, target, 0.22) : target;
-  return lookAt(chaseEye, chaseTarget, [0, 0, 1]);
+  return lookAt(transformPoint(board, chaseEye), transformPoint(board, chaseTarget), [0, 0, 1]);
 }
 
 const TABLE_CENTER = center(rect(table.fields[0]));
@@ -501,25 +507,22 @@ function lightProjection() {
   const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   for (const [x, y, z] of table.fields.flatMap(f => fitCorners(rect(f))))
     for (const dy of [0, -1.5]) {
-      const p = transformPoint(lightView, [x, y + dy, z]);
+      const p = transformPoint(lightView, transformPoint(board, [x, y + dy, z]));
       for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i], p[i]); hi[i] = Math.max(hi[i], p[i]); }
     }
   return ortho(lo[0], hi[0], lo[1], hi[1], -hi[2] - 1, -lo[2] + 1);
 }
 
-const lightViewProjection = multiply(lightProjection(), lightView);
-const shadowMatrix = multiply(translate(0.5, 0.5, 0.5), scale(0.5, 0.5, 0.5), lightViewProjection);
-
-let view;
+let view, board, parent, lightViewProjection, shadowMatrix;
 let shadowPass = false;
 const BLACK = [0, 0, 0];
 
 function draw(mesh, model, mat, boost = 1) {
   if (shadowPass) {
-    gl.uniformMatrix4fv(uLightMVP, false, multiply(lightViewProjection, model));
+    gl.uniformMatrix4fv(uLightMVP, false, multiply(lightViewProjection, parent, model));
   } else {
-    gl.uniformMatrix4fv(uniforms.uModelView, false, multiply(view, model));
-    gl.uniformMatrix4fv(uniforms.uShadowMatrix, false, multiply(shadowMatrix, model));
+    gl.uniformMatrix4fv(uniforms.uModelView, false, multiply(view, parent, model));
+    gl.uniformMatrix4fv(uniforms.uShadowMatrix, false, multiply(shadowMatrix, parent, model));
     gl.uniform3fv(uniforms.uColor, mat.color);
     gl.uniform3fv(uniforms.uEmissive, (mat.emissive ?? BLACK).map(v => v * boost));
     gl.uniform3fv(uniforms.uTopEmissive, (mat.top ?? BLACK).map(v => v * boost));
@@ -615,6 +618,7 @@ function drawBall() {
 }
 
 function drawScene() {
+  parent = board;
   table.fields.forEach(drawCabinet);
   table.walls.forEach(drawWall);
   table.bumpers.forEach(drawBumper);
@@ -625,6 +629,7 @@ function drawScene() {
 
 function drawWorld() {
   const { x0, y0, x1, y1 } = GROUND, base = CABINET.base;
+  parent = identity();
   draw(cubeMesh, box(x0, y0, base - 0.2, x1, y1, base), MATERIALS.ground);
   for (const [bx0, by0, bx1, by1, h] of BLOCKS) draw(cubeMesh, box(bx0, by0, base, bx1, by1, base + h), MATERIALS.block);
 }
@@ -646,7 +651,7 @@ function drawTrail(projection) {
     trailTexCoords.set([age, 1, age, -1], i * 4);
   });
   gl.useProgram(trailProgram);
-  gl.uniformMatrix4fv(trailUniforms.uModelView, false, view);
+  gl.uniformMatrix4fv(trailUniforms.uModelView, false, multiply(view, board));
   gl.uniformMatrix4fv(trailUniforms.uProjection, false, projection);
   gl.uniform3fv(trailUniforms.uColor, palette.trail);
   gl.bindBuffer(gl.ARRAY_BUFFER, trailPositionBuffer);
@@ -704,10 +709,16 @@ function resize() {
   resizeTargets(w, h);
 }
 
-function render(insets, ballCam) {
+function render(insets, ballCam, zoom) {
   resize();
   updatePalette();
   updateTrail();
+  const field = rect(table.fields[game.field]);
+  cameraRect = cameraRect ? lerp(cameraRect, field, 0.08) : field;
+  const c = center(cameraRect);
+  board = multiply(translate(c[0], c[1], 0), rotateY(game.tilt[0]), rotateX(-game.tilt[1]), translate(-c[0], -c[1], 0));
+  lightViewProjection = multiply(lightProjection(), lightView);
+  shadowMatrix = multiply(translate(0.5, 0.5, 0.5), scale(0.5, 0.5, 0.5), lightViewProjection);
 
   gl.useProgram(shadowProgram);
   gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
@@ -720,20 +731,16 @@ function render(insets, ballCam) {
   shadowPass = false;
   gl.disable(gl.POLYGON_OFFSET_FILL);
 
-  const field = rect(table.fields[game.field]);
-  cameraRect = cameraRect ? lerp(cameraRect, field, 0.08) : field;
-
   let projection;
   if (ballCam) {
     view = chaseView();
-    projection = perspective(65 * Math.PI / 180, canvas.width / canvas.height, 0.2, 120);
+    projection = perspective(2 * Math.atan(Math.tan(65 * Math.PI / 360) / zoom), canvas.width / canvas.height, 0.2, 120);
   } else {
     chaseEye = chaseTarget = null;
     const tall = Math.min(1, Math.max(0, (1.1 - canvas.width / canvas.height) / 0.6));
-    const c = center(cameraRect);
     view = lookAt(add(c, lerp(CAMERA.wide.eye, CAMERA.tall.eye, tall)),
                   add(c, lerp(CAMERA.wide.target, CAMERA.tall.target, tall)), [0, 0, 1]);
-    projection = fitProjection(view, canvas.clientWidth, canvas.clientHeight, insets, fitCorners(cameraRect));
+    projection = fitProjection(view, canvas.clientWidth, canvas.clientHeight, insets, fitCorners(cameraRect), zoom);
   }
 
   gl.useProgram(program);

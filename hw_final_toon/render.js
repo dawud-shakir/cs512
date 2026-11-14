@@ -363,7 +363,7 @@ function fitProjection(view, W, H, insets, corners, zoom) {
   const fit = Math.max((xmax - xmin) * margin / W, (ymax - ymin) * margin / usable);
   const s = fit / zoom, slack = Math.max(0, fit - s);
   const cx = (xmin + xmax) / 2, cy = (ymin + ymax) / 2;
-  const [bx, by, bz] = transformPoint(view, [game.ball.p[0], game.ball.p[1], BALL_RADIUS]);
+  const [bx, by, bz] = transformPoint(multiply(view, board), [game.ball.p[0], game.ball.p[1], BALL_RADIUS]);
   const fx = clamp(bx / -bz, cx - slack * W / 2, cx + slack * W / 2);
   const fy = clamp(by / -bz, cy - slack * usable / 2, cy + slack * usable / 2);
   const bottom = fy - s * (insets.bottom + usable / 2);
@@ -387,16 +387,13 @@ function lightProjection() {
   const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   for (const [x, y, z] of table.fields.flatMap(f => fitCorners(rect(f))))
     for (const dy of [0, -1.5]) {
-      const p = transformPoint(lightView, [x, y + dy, z]);
+      const p = transformPoint(lightView, transformPoint(board, [x, y + dy, z]));
       for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i], p[i]); hi[i] = Math.max(hi[i], p[i]); }
     }
   return ortho(lo[0], hi[0], lo[1], hi[1], -hi[2] - 1, -lo[2] + 1);
 }
 
-const lightViewProjection = multiply(lightProjection(), lightView);
-const shadowMatrix = multiply(translate(0.5, 0.5, 0.5), scale(0.5, 0.5, 0.5), lightViewProjection);
-
-let view, board = identity();
+let view, board, lightViewProjection, shadowMatrix;
 let shadowPass = false;
 
 function draw(mesh, model, mat, emissive = [0, 0, 0]) {
@@ -514,7 +511,12 @@ function resize() {
 
 function render(insets, ballCam, zoom) {
   resize();
-  board = multiply(translate(TABLE_CENTER[0], 0, 0), rotateY(game.tilt), translate(-TABLE_CENTER[0], 0, 0));
+  const field = rect(table.fields[game.field]);
+  cameraRect = cameraRect ? lerp(cameraRect, field, 0.08) : field;
+  const c = center(cameraRect);
+  board = multiply(translate(c[0], c[1], 0), rotateY(game.tilt[0]), rotateX(-game.tilt[1]), translate(-c[0], -c[1], 0));
+  lightViewProjection = multiply(lightProjection(), lightView);
+  shadowMatrix = multiply(translate(0.5, 0.5, 0.5), scale(0.5, 0.5, 0.5), lightViewProjection);
 
   gl.useProgram(shadowProgram);
   gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
@@ -527,9 +529,6 @@ function render(insets, ballCam, zoom) {
   shadowPass = false;
   gl.disable(gl.POLYGON_OFFSET_FILL);
 
-  const field = rect(table.fields[game.field]);
-  cameraRect = cameraRect ? lerp(cameraRect, field, 0.08) : field;
-
   let projection;
   if (ballCam) {
     view = chaseView();
@@ -537,7 +536,6 @@ function render(insets, ballCam, zoom) {
   } else {
     chaseEye = chaseTarget = null;
     const tall = Math.min(1, Math.max(0, (1.1 - canvas.width / canvas.height) / 0.6));
-    const c = center(cameraRect);
     view = lookAt(add(c, lerp(CAMERA.wide.eye, CAMERA.tall.eye, tall)),
                   add(c, lerp(CAMERA.wide.target, CAMERA.tall.target, tall)), [0, 0, 1]);
     projection = fitProjection(view, canvas.clientWidth, canvas.clientHeight, insets, fitCorners(cameraRect), zoom);

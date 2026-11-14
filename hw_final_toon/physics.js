@@ -121,8 +121,8 @@ const game = {
   score: 0,
   balls: 3,
   field: 0,
-  tilt: 0,
-  tilting: [false, false],
+  tilt: [0, 0],
+  tilting: [false, false, false, false],
   state: "ready",
   charge: 0,
   charging: false,
@@ -213,12 +213,13 @@ function collideFlippers(ball) {
   }
 }
 
+const approach = (value, target, step) =>
+  Math.abs(target - value) <= step ? target : value + Math.sign(target - value) * step;
+
 function moveFlippers(dt) {
   for (const f of table.flippers) {
-    const target = f.pressed ? f.upAngle : f.restAngle;
     const prev = f.angle;
-    const step = f.speed * dt;
-    f.angle = Math.abs(target - f.angle) <= step ? target : f.angle + Math.sign(target - f.angle) * step;
+    f.angle = approach(f.angle, f.pressed ? f.upAngle : f.restAngle, f.speed * dt);
     f.omega = f.side * (f.angle - prev) / dt;
   }
 }
@@ -228,9 +229,9 @@ function stepPhysics(dt) {
   const ball = game.ball;
 
   if (game.charging) game.charge = Math.min(1, game.charge + dt);
-  const tiltTarget = TILT_MAX * (game.tilting[1] - game.tilting[0]);
-  const tiltStep = TILT_SPEED * dt;
-  game.tilt = Math.abs(tiltTarget - game.tilt) <= tiltStep ? tiltTarget : game.tilt + Math.sign(tiltTarget - game.tilt) * tiltStep;
+  const [left, right, down, up] = game.tilting;
+  const tiltTarget = [right - left, up - down].map(d => TILT_MAX * d);
+  game.tilt = game.tilt.map((t, i) => approach(t, tiltTarget[i], TILT_SPEED * dt));
   for (const bp of table.bumpers) bp.lit = Math.max(0, bp.lit - dt);
 
   for (let i = 0; i < SUBSTEPS; i++) {
@@ -238,8 +239,8 @@ function stepPhysics(dt) {
     if (game.state === "over") continue;
 
     const [x, y] = ball.p;
-    ball.v[0] += TILT_GRAVITY * Math.sin(game.tilt) * h;
-    ball.v[1] -= GRAVITY * h;
+    ball.v[0] += TILT_GRAVITY * Math.sin(game.tilt[0]) * h;
+    ball.v[1] += (TILT_GRAVITY * Math.sin(game.tilt[1]) - GRAVITY) * h;
     const speed = Math.hypot(ball.v[0], ball.v[1]);
     if (speed > MAX_SPEED) { ball.v[0] *= MAX_SPEED / speed; ball.v[1] *= MAX_SPEED / speed; }
     ball.p[0] += ball.v[0] * h;

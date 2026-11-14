@@ -2,7 +2,7 @@ const FLIPPER_KEYS = {
   ArrowLeft: 0, KeyZ: 0, ShiftLeft: 0,
   ArrowRight: 1, Slash: 1, ShiftRight: 1,
 };
-const TILT_KEYS = { Digit5: 0, Digit6: 1 };
+const TILT_KEYS = { KeyA: 0, KeyD: 1, KeyS: 2, KeyW: 3 };
 const PLUNGER_KEYS = new Set(["Space", "ArrowDown"]);
 
 const CAP_FOR = { ShiftLeft: "KeyZ", ShiftRight: "Slash", ArrowDown: "Space" };
