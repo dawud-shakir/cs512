@@ -2,6 +2,7 @@ const FLIPPER_KEYS = {
   ArrowLeft: 0, KeyZ: 0, ShiftLeft: 0,
   ArrowRight: 1, Slash: 1, ShiftRight: 1,
 };
+const TILT_KEYS = { Digit5: 0, Digit6: 1 };
 const PLUNGER_KEYS = new Set(["Space", "ArrowDown"]);
 
 const CAP_FOR = { ShiftLeft: "KeyZ", ShiftRight: "Slash", ArrowDown: "Space" };
@@ -15,6 +16,7 @@ function onKey(e, down) {
   if (e.repeat) return;
   showKey(e.code, down);
   if (e.code in FLIPPER_KEYS) setFlipper(FLIPPER_KEYS[e.code], down);
+  else if (e.code in TILT_KEYS) setTilt(TILT_KEYS[e.code], down);
   else if (PLUNGER_KEYS.has(e.code)) setPlunger(down);
   else if (e.code === "KeyC") { if (down) toggleCamera(); }
   else return;
@@ -59,6 +61,12 @@ function toggleCamera() {
 }
 cameraBtn.addEventListener("click", toggleCamera);
 
+let zoom = 1;
+window.addEventListener("wheel", e => {
+  e.preventDefault();
+  zoom = Math.min(4, Math.max(0.5, zoom * Math.exp(-e.deltaY * 0.002)));
+}, { passive: false });
+
 let screenInsets = { top: 0, bottom: 0 };
 
 function measureInsets() {
@@ -84,7 +92,7 @@ function updateHud() {
   const touch = document.body.classList.contains("touch");
   const status = game.state === "over" ? (touch ? "GAME OVER - tap LAUNCH" : "GAME OVER - press Space")
     : game.state === "ready" ? (touch ? "Hold LAUNCH" : "Hold Space to launch") : "";
-  hud.textContent = `Score ${game.score}   Balls ${game.balls}   ${status}`;
+  hud.textContent = `Score ${game.score}   Balls ${game.balls}   Level ${game.field + 1}   ${status}`;
 }
 
 document.body.classList.toggle("touch", matchMedia("(pointer: coarse)").matches);
@@ -97,7 +105,7 @@ function frame(now) {
   const dt = Math.min((now - last) / 1000, 1 / 30);
   last = now;
   stepPhysics(dt);
-  render(screenInsets, ballCam);
+  render(screenInsets, ballCam, zoom);
   updateHud();
   requestAnimationFrame(frame);
 }

@@ -4,7 +4,8 @@ const SUBSTEPS = 8;
 const MAX_SPEED = 60;
 const LANE_X = 18.4;
 const FLIPPER_Y = 4.6;
-const GATE_HALF = 1.2;
+const GATE_X = 9.2;
+const GATE_HALF = 2.0;
 
 function arc(cx, cy, r, from, to, n = 10) {
   const pts = [];
@@ -24,15 +25,15 @@ function chain(points) {
   return segs;
 }
 
-function makeFlipper(pivot, side) {
+function makeFlipper(pivot, side, restAngle = -0.5, upAngle = 0.45) {
   return {
     pivot, side,
     length: 3.2,
     radius: 0.3,
-    restAngle: -0.5,
-    upAngle: 0.45,
+    restAngle,
+    upAngle,
     speed: 18,
-    angle: -0.5,
+    angle: restAngle,
     omega: 0,
     pressed: false,
   };
@@ -46,7 +47,7 @@ const FIELDS = [
 
 function gate(x, below, above) {
   const y = above.y0 + FLIPPER_Y;
-  const left = [x - 4.3, y], right = [x + 4.3, y];
+  const left = [x - GATE_HALF - 3.1, y], right = [x + GATE_HALF + 3.1, y];
   return {
     x, below,
     walls: [
@@ -60,8 +61,8 @@ function gate(x, below, above) {
 }
 
 const GATES = [
-  gate(9.2, FIELDS[0], FIELDS[1]),
-  gate(9.2, FIELDS[1], FIELDS[2]),
+  gate(GATE_X, FIELDS[0], FIELDS[1]),
+  gate(GATE_X, FIELDS[1], FIELDS[2]),
 ];
 
 const table = {
@@ -71,10 +72,10 @@ const table = {
     ...chain([
       [0, 8], [0, 32],
       ...arc(4, 32, 4, Math.PI, Math.PI / 2),
-      [8, 36],
+      [GATE_X - GATE_HALF, 36],
     ]),
     ...chain([
-      [10.4, 36],
+      [GATE_X + GATE_HALF, 36],
       ...arc(16, 32, 4, Math.PI / 2, 0),
       [20, 0],
     ]),
@@ -84,8 +85,8 @@ const table = {
     { a: [LANE_X, 8], b: [13.0, 4.6] },
     { a: [5.4, 4.6], b: [5.4, -1], hidden: true },
     { a: [13.0, 4.6], b: [13.0, -1], hidden: true },
-    ...chain([[2.2, 45.2], [2.2, 59], [6.2, 63], [8, 63]]),
-    ...chain([[10.4, 63], [12.2, 63], [16.2, 59], [16.2, 45.2]]),
+    ...chain([[2.2, 45.2], [2.2, 59], [6.2, 63], [GATE_X - GATE_HALF, 63]]),
+    ...chain([[GATE_X + GATE_HALF, 63], [12.2, 63], [16.2, 59], [16.2, 45.2]]),
     ...chain([[2.2, 72.2], [2.2, 73], ...arc(9.2, 73, 7, Math.PI, 0, 24), [16.2, 72.2]]),
     ...GATES.flatMap(g => g.walls),
   ],
@@ -102,6 +103,7 @@ const table = {
   flippers: [
     makeFlipper([5.4, 4.6], +1),
     makeFlipper([13.0, 4.6], -1),
+    makeFlipper([0.6, 24], +1, -0.3, 0.2),
     ...GATES.flatMap(g => g.flippers),
   ],
 };
