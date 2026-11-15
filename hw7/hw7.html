@@ -507,8 +507,8 @@ void main() {
   canvas.addEventListener("pointerdown", e => canvas.setPointerCapture(e.pointerId));
   canvas.addEventListener("pointermove", e => {
     if (!canvas.hasPointerCapture(e.pointerId)) return;
-    yaw -= e.movementX * 0.01;
-    pitch = Math.min(1.4, Math.max(0.01, pitch + e.movementY * 0.01));  // prevent pitch from pi/2 = 1.57 so f x up in lookat does not become zero
+    yaw -= Math.sin(Math.cos(pitch) || 1) * e.movementX * 0.01; // fix drag when upside down
+    pitch = Math.min(Math.PI, Math.max(0, pitch + e.movementY * 0.01));  
   });
   
   canvas.addEventListener("wheel", e => {
@@ -556,14 +556,17 @@ function cross(a, b) {
     gl.uniform1f(uniform("u_ambientStrength"), ambient.value);
     gl.uniform2f(uniform("u_cameraOrbit"), pitch, yaw);
 
+    const sp = Math.sin(pitch), cp = Math.cos(pitch);
+    const sy = Math.sin(yaw), cy = Math.cos(yaw);
     const target = [0, 0, -5];
     const eye = [
       target[0] + distance * Math.cos(pitch) * Math.sin(yaw),
       target[1] + distance * Math.sin(pitch),
       target[2] + distance * Math.cos(pitch) * Math.cos(yaw)
     ];
+    const up = [-sp * sy, cp, -sp * cy];
 
-    gl.uniformMatrix4fv(uniform("u_cameraLookat"), false, lookAt(eye, target));
+    gl.uniformMatrix4fv(uniform("u_cameraLookat"), false, lookAt(eye, target, up));
 
 
     gl.uniform1i(uniform("u_glassMethod"), method.value);
