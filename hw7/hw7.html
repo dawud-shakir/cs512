@@ -565,7 +565,127 @@ void main() {
 }
 </script>
 
-<script src="obj_loader.js"></script>
+<script>
+async function loadOBJ(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error("Failed to load " + url);
+  }
+  const mesh = parseOBJ(await response.text());
+  if (mesh.mtllib) {
+    mesh.materials = await loadMTL(new URL(mesh.mtllib, response.url).href);
+  }
+  return mesh;
+}
+
+async function loadMTL(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error("Failed to load " + url);
+  }
+  return parseMTL(await response.text());
+}
+
+function parseOBJ(text) {
+  const vertices = [];
+  const normals = [];
+  const texCoords = [];
+  const mesh = {
+    positions: [],
+    normals: [],
+    texCoords: [],
+    indices: [],
+    faceMaterials: [],
+    mtllib: null
+  };
+  let material = null;
+
+  function faceNormal(a, b, c) {
+    const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    const length = Math.hypot(n[0], n[1], n[2]) || 1;
+    return n.map(x => x / length);
+  }
+
+  function lookup(array, index) {
+    const n = Number(index);
+    const value = array[n > 0 ? n - 1 : array.length + n];
+    if (!Number.isInteger(n) || n === 0 || !value) {
+      throw new Error("Invalid OBJ index: " + index);
+    }
+    return value;
+  }
+
+  for (const line of text.split(/\r?\n/)) {
+    const parts = line.split("#")[0].trim().split(/\s+/);
+    const type = parts.shift();
+
+    if (type === "v") {
+      vertices.push(parts.slice(0, 3).map(Number));
+    } else if (type === "vn") {
+      normals.push(parts.slice(0, 3).map(Number));
+    } else if (type === "vt") {
+      texCoords.push(parts.slice(0, 2).map(Number));
+    } else if (type === "mtllib") {
+      mesh.mtllib = parts.join(" ");
+    } else if (type === "usemtl") {
+      material = parts.join(" ");
+    } else if (type === "f") {
+      if (parts.length !== 3) {
+        throw new Error("Export the OBJ with triangulated faces");
+      }
+
+      const corners = parts.map(part => part.split("/"));
+      const points = corners.map(([v]) => lookup(vertices, v));
+      const flat = faceNormal(...points);
+
+      corners.forEach(([, vt, vn], i) => {
+        mesh.positions.push(...points[i]);
+        mesh.normals.push(...(vn ? lookup(normals, vn) : flat));
+        mesh.texCoords.push(...(vt ? lookup(texCoords, vt) : [0, 0]));
+        mesh.indices.push(mesh.indices.length);
+      });
+      mesh.faceMaterials.push(material);
+    }
+  }
+
+  return mesh;
+}
+
+function parseMTL(text) {
+  const materials = Object.create(null);
+  let material = null;
+
+  for (const line of text.split(/\r?\n/)) {
+    const parts = line.split("#")[0].trim().split(/\s+/);
+    const type = parts.shift();
+
+    if (type === "newmtl") {
+      material = {
+        Ka: [0.1, 0.1, 0.1],
+        Kd: [0.8, 0.8, 0.8],
+        Ks: [0, 0, 0],
+        shininess: 1,
+        diffuseMap: null
+      };
+
+      materials[parts.join(" ")] = material;
+    } else if (material) {
+      if (type === "Ka" || type === "Kd" || type === "Ks") {
+        material[type] = parts.slice(0, 3).map(Number);
+      } else if (type === "Ns") {
+        material.shininess = Number(parts[0]);
+      } else if (type === "map_Kd") {
+        material.diffuseMap = parts.join(" ");
+      }
+    }
+  }
+
+  return materials;
+}
+
+</script>
 
 <script>
   const canvas = document.getElementById("glcanvas");
