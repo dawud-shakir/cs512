@@ -1,0 +1,69 @@
+newmtl material_C0C0C0
+Ka 0 0 0
+Kd 0.7529 0.7529 0.7529
+Ks 0.4014 0.4014 0.4014
+Ns 125
+Pr 0.50
+Pm 0.50
+d 1
+illum 2
+
+newmtl Cod_Gray
+Ka 0 0 0
+Kd 0.0392 0.0392 0.0392
+Ks 0.1000 0.1000 0.1000
+Ns 125
+Pr 0.50
+Pm 0.00
+d 1
+illum 2
+
+newmtl Pumice
+Ka 0 0 0
+Kd 0.7843 0.7843 0.7843
+Ks 0.1000 0.1000 0.1000
+Ns 125
+Pr 0.50
+Pm 0.00
+d 1
+illum 2
+
+newmtl Dawn
+Ka 0 0 0
+Kd 0.6471 0.6196 0.5882
+Ks 0.1000 0.1000 0.1000
+Ns 125
+Pr 0.50
+Pm 0.00
+d 1
+illum 2
+
+newmtl Periwinkle_Gray
+Ka 0 0 0
+Kd 0.7922 0.8196 0.9333
+Ks 0.1000 0.1000 0.1000
+Ns 125
+Pr 0.50
+Pm 0.00
+d 1
+illum 2
+
+newmtl Nobel
+Ka 0 0 0
+Kd 0.7020 0.7020 0.7020
+Ks 0.1000 0.1000 0.1000
+Ns 125
+Pr 0.50
+Pm 0.00
+d 1
+illum 2
+
+newmtl Rangoon_Green
+Ka 0 0 0
+Kd 0.1176 0.1176 0.1176
+Ks 0.1000 0.1000 0.1000
+Ns 125
+Pr 0.50
+Pm 0.00
+d 1
+illum 2

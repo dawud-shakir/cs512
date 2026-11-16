@@ -4,26 +4,79 @@
 <head>
   <meta charset="utf-8">
   <title>Ray Tracing</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap">
   <style>
-    body { background: #111; color: #ccc; font-family: monospace; }
-    canvas { border: 1px solid #444; touch-action: none; }
-    .layout { display: flex; gap: 10px; align-items: flex-start; }
-    .editors { display: flex; flex-direction: column; gap: 10px; }
+    body {
+      margin: 0;
+      padding: 16px 24px;
+      min-height: 100vh;
+      box-sizing: border-box;
+      background: linear-gradient(#2961cc 0 30%, #4287e6 30% 60%, #73b3f5 60% 88%, #b3d9fa 88%) fixed;
+      color: #1a2961;
+      font: 500 15px "Fredoka", sans-serif;
+    }
+    h2 {
+      margin: 0 0 14px;
+      font-size: 36px;
+      font-weight: 700;
+      color: #fff;
+      -webkit-text-stroke: 7px #1a2961;
+      paint-order: stroke fill;
+      text-shadow: 5px 5px 0 #8c9ed1;
+    }
+    body > p, .editors > div, #shaderError:not(:empty), .panels > div {
+      background: #fff;
+      border: 4px solid #1a2961;
+      border-radius: 18px;
+      box-shadow: 6px 6px 0 #8c9ed1;
+      padding: 10px 14px;
+    }
+    body > p { display: inline-block; margin: 0 0 18px; line-height: 1.5; }
+    b { display: block; margin-bottom: 6px; font-size: 17px; font-weight: 700; }
+    canvas {
+      display: block;
+      border: 5px solid #1a2961;
+      border-radius: 18px;
+      box-shadow: 6px 6px 0 #8c9ed1;
+      touch-action: none;
+    }
+    .layout { display: flex; gap: 18px; align-items: flex-start; }
+    .main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+    .stage { display: flex; gap: 18px; align-items: flex-start; }
+    .editors { display: flex; flex-direction: column; gap: 18px; }
     textarea {
-      background: #222;
-      color: #0f0;
-      font: 14px monospace;
+      display: block;
+      background: #1a2961;
+      color: #e6f0ff;
+      border: 0;
+      border-radius: 10px;
+      padding: 8px 10px;
+      outline: none;
+      font: 13px "JetBrains Mono", monospace;
       width: 400px;
       height: 100px;
       box-sizing: border-box;
       white-space: pre;
     }
-    #fragEditor { height: 614px; }
-    .layout > div:nth-child(n+2) { margin-top: 15px; }
-    #shaderError { color: #f66; white-space: pre-wrap; width: 400px; margin: 0; }
-    .controls { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+    #fragEditor { height: 658px; }
+    #shaderError { color: #d64545; font: 13px "JetBrains Mono", monospace; white-space: pre-wrap; width: 400px; margin: 0; }
+    .panels { display: flex; gap: 18px; margin-top: 18px; }
+    .panels > div { flex: 1; }
+    .controls { display: flex; flex-direction: column; gap: 6px; }
+    .glass .controls { margin-top: 10px; }
     .control-row { display: flex; align-items: center; gap: 10px; }
-    .control-row:has(input:disabled) { color: #666; }
+    .control-row span { font-weight: 700; }
+    .control-row:has(input:disabled) { color: #8c9ed1; }
+    input[type="range"] { accent-color: #2961cc; }
+    select {
+      margin-top: 6px;
+      padding: 4px 8px;
+      font: inherit;
+      color: #1a2961;
+      background: #fff;
+      border: 3px solid #1a2961;
+      border-radius: 10px;
+    }
   </style>
 </head>
 
@@ -35,52 +88,68 @@
     Use the sliders to change the max number of bounces, the ambient light strength and the shininess.</p>
 
   <div class="layout">
-    <div class="editors">
-      <div>
-        <b>Vertex Shader</b><br>
-        <textarea id="vertEditor" spellcheck="false"></textarea>
-      </div>
-      <div>
-        <b>Fragment Shader</b><br>
-        <textarea id="fragEditor" spellcheck="false"></textarea>
-      </div>
-      <pre id="shaderError"></pre>
-    </div>
-
-    <div>
-      <canvas id="glcanvas" width="740" height="740"></canvas>
-
-      <div class="controls">
-        <div class="control-row">
-          <label for="bounces">Max Bounces:</label>
-          <input type="range" id="bounces" min="1" max="8" value="4">
-          <span id="bouncesValue">4</span>
+    <div class="main">
+      <div class="stage">
+        <div class="editors">
+          <div>
+            <b>Vertex Shader</b>
+            <textarea id="vertEditor" spellcheck="false"></textarea>
+          </div>
+          <div>
+            <b>Fragment Shader</b>
+            <textarea id="fragEditor" spellcheck="false"></textarea>
+          </div>
+          <pre id="shaderError"></pre>
         </div>
-        <div class="control-row">
-          <label for="ambient">Ambient Strength:</label>
-          <input type="range" id="ambient" min="0" max="1" step="0.05" value="0.05">
-          <span id="ambientValue">0.05</span>
-        </div>
-        <div class="control-row">
-          <label for="shininess">Shininess:</label>
-          <input type="range" id="shininess" min="1" max="200" value="50">
-          <span id="shininessValue">50</span>
-        </div>
-      </div>
-    </div>
 
-    <div>
-      <label for="method">Glass:</label><br>
-      <select id="method">
-        <option value="0">Dominant ray (F &gt; 0.5)</option>
-        <option value="1" selected>Fresnel blend</option>
-        <option value="2">Monte Carlo</option>
-      </select>
-      <div class="controls">
-        <div class="control-row">
-          <label for="samples">Samples:</label>
-          <input type="range" id="samples" min="1" max="64" value="16">
-          <span id="samplesValue">16</span>
+        <div>
+          <canvas id="glcanvas" width="1512" height="740"></canvas>
+
+          <div class="panels">
+            <div class="controls">
+              <div class="control-row">
+                <label for="bounces">Max Bounces:</label>
+                <input type="range" id="bounces" min="1" max="8" value="8">
+                <span id="bouncesValue">8</span>
+              </div>
+              <div class="control-row">
+                <label for="ambient">Ambient Strength:</label>
+                <input type="range" id="ambient" min="0" max="1" step="0.05" value="1">
+                <span id="ambientValue">1</span>
+              </div>
+              <div class="control-row">
+                <label for="shininess">Shininess:</label>
+                <input type="range" id="shininess" min="1" max="200" value="100">
+                <span id="shininessValue">100</span>
+              </div>
+              <div class="control-row">
+                <label for="outline">Cloud Outline:</label>
+                <input type="range" id="outline" min="0.001" max="0.1" step="0.001" value="0.035">
+                <span id="outlineValue">0.035</span>
+              </div>
+              <div class="control-row">
+                <label for="fluffiness">Fluffiness:</label>
+                <input type="range" id="fluffiness" min="0.05" max="0.6" step="0.01" value="0.35">
+                <span id="fluffinessValue">0.35</span>
+              </div>
+            </div>
+
+            <div class="glass">
+              <label for="method">Glass:</label><br>
+              <select id="method">
+                <option value="0">Dominant ray (F &gt; 0.5)</option>
+                <option value="1" selected>Fresnel blend</option>
+                <option value="2">Monte Carlo</option>
+              </select>
+              <div class="controls">
+                <div class="control-row">
+                  <label for="samples">Samples:</label>
+                  <input type="range" id="samples" min="1" max="64" value="16">
+                  <span id="samplesValue">16</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -101,16 +170,19 @@ uniform vec2 u_resolution;
 uniform int u_maxBounces;
 uniform float u_ambientStrength; //Ambient fill light for better visual
 uniform float u_shininess;
+uniform float u_outline;
+uniform float u_fluffiness;
 uniform mat4 u_cameraLookat;
 
 uniform int u_glassMethod;
 uniform int u_samples;
+uniform highp sampler2D u_armTriangles;
 
 out vec4 fragColor;
 
 const float LIGHT_POWER = 3.0;
 const float FLOOR_Y = -2.0;
-const float CHECKER_SIZE = 3.0;
+const float CHECKER_SIZE = 1.0;
 const float GLASS_IOR = 1.5;  // refractive index of the glass sphere
 const vec3 SUN_DIR = vec3(0.784, 0.588, 0.196);
 
@@ -162,12 +234,13 @@ const Floor lightFloor = Floor(vec3(1.0, 2.0, 1.0), vec3(0.05, 0.05, 0.05), 0.6)
 
 void initScene(float time) {
     float a = time * 0.5;
-    sphere = Sphere(vec3(cos(a) * 2.5, sin(a * 1.3) * 0.8, -6.0 + sin(a) * 0.5), 1.0, vec3(1.0, 0.3, 0.3), 0.0);
+    float c = 10.0;
+    sphere = Sphere(vec3(c * cos(a) * 2.5, sin(a * 1.3) * 0.8, -6.0 + sin(a) * 0.5), 1.0, vec3(1.0, 0.3, 0.3), 0.0);
 
     float b = time * 0.3;
-    cube = Cube(vec3(sin(b) * 2.0, cos(b * 1.5) + 0.5, -9.0 + cos(b * 0.7)), 0.8, vec3(0.3, 0.8, 0.3), 0.85);
+    cube = Cube(vec3(sin(b) * 2.0, cos(b * 1.5) + 0.5, -9.0 + cos(b * 0.7)), 0.8, vec3(0.9, 1.0, 0.92), 0.0);
 
-    glassSphere = Sphere(vec3(-1.2, -0.7 + 0.3 * sin(time * 0.7), -4.5), 1.0, vec3(0.95, 0.98, 1.0), 0.0);
+    glassSphere = Sphere(vec3(-1.2, -0.7 + 0.3 * c * sin(time * 0.7), -4.5), 1.0, vec3(0.95, 0.98, 1.0), 0.0);
     metalSphere = Sphere(vec3(0.9, -1.0, -4.3), 1.0, vec3(0.9, 0.9, 0.92), 0.95);
 }
 
@@ -201,6 +274,40 @@ bool intersectCube(Ray ray, out float t, out vec3 normal) {
     else if (a.y > a.z) normal = vec3(0.0, sign(local.y), 0.0);
     else normal = vec3(0.0, 0.0, sign(local.z));
     return true;
+}
+
+bool intersectArm(Ray ray, out float t, out vec3 normal, out vec3 color) {
+    vec3 o = (ray.origin - cube.center) / cube.halfSize;
+    vec3 d = ray.direction / cube.halfSize;
+    bool found = false;
+    t = 1e10;
+
+    int count = textureSize(u_armTriangles, 0).y;
+    for (int i = 0; i < count; i++) {
+        vec3 v0 = texelFetch(u_armTriangles, ivec2(0, i), 0).xyz;
+        vec3 e1 = texelFetch(u_armTriangles, ivec2(1, i), 0).xyz - v0;
+        vec3 e2 = texelFetch(u_armTriangles, ivec2(2, i), 0).xyz - v0;
+
+        vec3 p = cross(d, e2);
+        float det = dot(e1, p);
+        if (abs(det) < 1e-9) continue;
+        float inv = 1.0 / det;
+
+        vec3 s = o - v0;
+        float u = dot(s, p) * inv;
+        vec3 q = cross(s, e1);
+        float v = dot(d, q) * inv;
+        float tt = dot(e2, q) * inv;
+        if (u < 0.0 || v < 0.0 || u + v > 1.0 || tt < 0.001 || tt > t) continue;
+
+        t = tt;
+        normal = normalize(cross(e1, e2));
+        color = texelFetch(u_armTriangles, ivec2(3, i), 0).rgb;
+        found = true;
+    }
+
+    if (dot(normal, ray.direction) > 0.0) normal = -normal;
+    return found;
 }
 
 //eta = n1 / n2
@@ -253,8 +360,14 @@ HitData traceScene(Ray ray, bool includeLight) {
         hit = HitData(true, t, p, vec3(0.0, 1.0, 0.0), color, lightFloor.reflectivity, false, false);
     }
 
-    if (intersectCube(ray, t, n) && t < hit.t) {
-        hit = HitData(true, t, ray.origin + ray.direction * t, n, cube.color, cube.reflectivity, false, false);
+    if (intersectCube(ray, t, n)) {
+        if (includeLight && t < hit.t) {
+            hit = HitData(true, t, ray.origin + ray.direction * t, n, cube.color, cube.reflectivity, false, true);
+        }
+        vec3 color;
+        if (intersectArm(ray, t, n, color) && t < hit.t) {
+            hit = HitData(true, t, ray.origin + ray.direction * t, n, color, 0.0, false, false);
+        }
     }
 
     if (intersectSphere(ray, sphere, t) && t < hit.t) {
@@ -297,21 +410,35 @@ float noise(vec2 p) {
                mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
 
-vec3 sky(vec3 d) {
-    vec3 zenith = vec3(0.10, 0.22, 0.50);
-    vec3 horizon = vec3(0.80, 0.72, 0.62);
-    vec3 ground = vec3(0.22, 0.20, 0.18);
-    vec3 color = d.y < 0.0 ? mix(horizon, ground, min(-d.y * 4.0, 1.0)) : mix(horizon, zenith, sqrt(d.y));
+float clouds(vec2 uv) {
+    return 0.5 * noise(uv) + 0.25 * noise(uv * 2.0) + 0.125 * noise(uv * 4.0);
+}
 
-    if (d.y > 0.02) {
-        vec2 uv = d.xz / d.y * 0.4;
-        float n = 0.5 * noise(uv) + 0.25 * noise(uv * 2.0) + 0.125 * noise(uv * 4.0);
-        float clouds = smoothstep(0.45, 0.7, n) * smoothstep(0.02, 0.2, d.y);
-        color = mix(color, vec3(0.95, 0.95, 0.97), clouds * 0.8);
+vec3 sky(vec3 d) {
+    vec3 color = vec3(0.16, 0.38, 0.80);
+    if (d.y < 0.45) color = vec3(0.26, 0.53, 0.90);
+    if (d.y < 0.2) color = vec3(0.45, 0.70, 0.96);
+    if (d.y < 0.06) color = vec3(0.70, 0.85, 0.98);
+
+    if (d.y > 0.06) {
+        vec2 uv = d.xz / (d.y + 0.3) * 3.0;
+        float edge = mix(0.55, 1.0 - u_fluffiness, smoothstep(0.06, 0.3, d.y));
+        float n = clouds(uv);
+        vec2 grad = vec2(clouds(uv + vec2(0.01, 0.0)) - n, clouds(uv + vec2(0.0, 0.01)) - n) / 0.01;
+        float outline = step(abs(n - edge) / max(length(grad), 0.0001), u_outline);
+        float body = step(edge, n);
+        vec2 sunUV = SUN_DIR.xz / (SUN_DIR.y + 0.3) * 3.0;
+        vec2 toSun = sunUV - uv;
+        float lit = step(edge, clouds(uv - toSun / max(length(toSun), 0.0001) * 0.25));
+        vec3 cloud = mix(vec3(0.55, 0.62, 0.82), vec3(1.0), lit);
+        color = mix(color, cloud, body);
+        color = mix(color, vec3(0.10, 0.16, 0.38), outline);
     }
 
+    color = pow(color, vec3(2.2));
+
     float s = max(dot(d, SUN_DIR), 0.0);
-    color += vec3(1.0, 0.9, 0.7) * (8.0 * pow(s, 600.0) + 0.3 * pow(s, 8.0));
+    color += vec3(1.0, 0.9, 0.7) * (8.0 * step(0.9985, s) + 0.5 * step(0.995, s));
     return color;
 }
 
@@ -438,6 +565,8 @@ void main() {
 }
 </script>
 
+<script src="obj_loader.js"></script>
+
 <script>
   const canvas = document.getElementById("glcanvas");
   const gl = canvas.getContext("webgl2");
@@ -488,12 +617,42 @@ void main() {
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   gl.enableVertexAttribArray(0);
 
+  const armTexture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, armTexture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, 1, 0, gl.RGBA, gl.FLOAT, new Float32Array(16));
+
+  loadOBJ("gen3.obj").then(mesh => {
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    mesh.positions.forEach((x, i) => {
+      lo[i % 3] = Math.min(lo[i % 3], x);
+      hi[i % 3] = Math.max(hi[i % 3], x);
+    });
+    const scale = 1.9 / Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+    const center = [(lo[0] + hi[0]) / 2, lo[1] + 0.98 / scale, (lo[2] + hi[2]) / 2];
+
+    const count = mesh.positions.length / 9;
+    const data = new Float32Array(count * 16);
+    for (let i = 0; i < count; i++) {
+      for (let j = 0; j < 3; j++)
+        for (let k = 0; k < 3; k++)
+          data[i * 16 + j * 4 + k] = (mesh.positions[i * 9 + j * 3 + k] - center[k]) * scale;
+      data.set(mesh.materials[mesh.faceMaterials[i]].Kd, i * 16 + 12);
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, armTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, count, 0, gl.RGBA, gl.FLOAT, data);
+  }).catch(e => shaderError.textContent = e.message);
+
   const bounces = document.getElementById("bounces");
   const ambient = document.getElementById("ambient");
   const method = document.getElementById("method");
   const shininess = document.getElementById("shininess");
   const samples = document.getElementById("samples");
-  for (const slider of [bounces, ambient, shininess, samples]) {
+  const outline = document.getElementById("outline");
+  const fluffiness = document.getElementById("fluffiness");
+  for (const slider of [bounces, ambient, shininess, samples, outline, fluffiness]) {
     slider.addEventListener("input", () => document.getElementById(slider.id + "Value").textContent = slider.value);
   }
   const updateSamplesEnabled = () => samples.disabled = method.value !== "2";
@@ -501,7 +660,7 @@ void main() {
   updateSamplesEnabled();
 
   // Dragging orbits the camera
-  let pitch = 0.35, yaw = 0, distance = 9;
+  let pitch = 0.09, yaw = -1.33, distance = 38.4;
   canvas.addEventListener("pointerdown", e => canvas.setPointerCapture(e.pointerId));
   canvas.addEventListener("pointermove", e => {
     if (!canvas.hasPointerCapture(e.pointerId)) return;
@@ -553,6 +712,8 @@ function cross(a, b) {
     gl.uniform1i(uniform("u_maxBounces"), bounces.value);
     gl.uniform1f(uniform("u_ambientStrength"), ambient.value);
     gl.uniform1f(uniform("u_shininess"), shininess.value);
+    gl.uniform1f(uniform("u_outline"), outline.value);
+    gl.uniform1f(uniform("u_fluffiness"), fluffiness.value);
 
     const sp = Math.sin(pitch), cp = Math.cos(pitch);
     const sy = Math.sin(yaw), cy = Math.cos(yaw);

@@ -61,6 +61,16 @@ function toggleCamera() {
 }
 cameraBtn.addEventListener("click", toggleCamera);
 
+const difficultySlider = document.getElementById("difficultySlider");
+const difficultyValue = document.getElementById("difficultyValue");
+function setDifficulty() {
+  game.difficulty = difficultySlider.value / 10;
+  difficultyValue.textContent = difficultySlider.value;
+}
+difficultySlider.addEventListener("input", setDifficulty);
+difficultySlider.addEventListener("change", () => difficultySlider.blur());
+setDifficulty();
+
 let zoom = 1;
 window.addEventListener("wheel", e => {
   e.preventDefault();
@@ -70,7 +80,7 @@ window.addEventListener("wheel", e => {
 let screenInsets = { top: 0, bottom: 0 };
 
 function measureInsets() {
-  const rects = [...document.querySelectorAll("#hud, #controls, .pad, #touchLaunch")]
+  const rects = [...document.querySelectorAll("#hud, #difficulty, #controls, .pad, #touchLaunch")]
     .map(el => el.getBoundingClientRect()).filter(r => r.height > 0);
   const h = window.innerHeight;
   const padsBeside = document.body.classList.contains("touch") && window.innerWidth > h;

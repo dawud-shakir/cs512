@@ -23,6 +23,13 @@
                  text-shadow: 0 0 6px #39c6ff;
                  background: rgba(2, 10, 26, 0.85); border: 1px solid rgba(80, 200, 255, 0.6); border-radius: 20px;
                  box-shadow: 0 0 10px rgba(40, 160, 255, 0.45), inset 0 0 8px rgba(40, 160, 255, 0.25); }
+    #difficulty { position: fixed; top: calc(max(12px, env(safe-area-inset-top)) + 42px); right: 16px; z-index: 10;
+                  display: flex; align-items: center; gap: 8px; padding: 5px 14px;
+                  font: 600 13px system-ui, sans-serif; color: #9fe6ff; text-shadow: 0 0 6px #39c6ff;
+                  background: rgba(2, 10, 26, 0.85); border: 1px solid rgba(80, 200, 255, 0.6); border-radius: 20px;
+                  box-shadow: 0 0 10px rgba(40, 160, 255, 0.45), inset 0 0 8px rgba(40, 160, 255, 0.25); }
+    #difficulty input { width: 110px; accent-color: #39c6ff; touch-action: auto; }
+    #difficulty output { min-width: 1.2em; text-align: right; font-family: monospace; }
 
     #controls {
       position: fixed; left: 16px; right: 16px; bottom: 16px; margin: 0 auto; width: fit-content;
@@ -82,6 +89,7 @@
   <canvas id="glcanvas"></canvas>
   <div id="hud"></div>
   <button id="cameraBtn">🎥 Table Cam (C)</button>
+  <label id="difficulty">Difficulty <input id="difficultySlider" type="range" min="0" max="10" value="5"><output id="difficultyValue">5</output></label>
 
   <div id="controls">
     <div class="control"><kbd data-code="KeyZ">Z</kbd><kbd data-code="ArrowLeft">&larr;</kbd><span>Left flipper</span></div>
