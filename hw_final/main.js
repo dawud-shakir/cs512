@@ -53,11 +53,22 @@ holdControl(document.getElementById("touchLaunch"), setPlunger);
 window.addEventListener("pointerdown", e => { if (e.pointerType === "touch") setTouchMode(true); }, true);
 window.addEventListener("contextmenu", e => e.preventDefault());
 
-let ballCam = true;
+const CAMERAS = [
+  { name: "Ball Cam", ballCam: true, yaw: 0, pitch: 0, zoom: 1 },
+  { name: "Table Cam", ballCam: false, yaw: 0, pitch: 0, zoom: 1 },
+  { name: "Corner Cam", ballCam: false, yaw: -5.42, pitch: -0.328, zoom: 1.98 },
+];
+let cameraIndex = 0;
 const cameraBtn = document.getElementById("cameraBtn");
+function setCamera(i) {
+  cameraIndex = i;
+  orbitYaw = CAMERAS[i].yaw;
+  orbitPitch = CAMERAS[i].pitch;
+  zoom = CAMERAS[i].zoom;
+  cameraBtn.textContent = `🎥 ${CAMERAS[(i + 1) % CAMERAS.length].name} (C)`;
+}
 function toggleCamera() {
-  ballCam = !ballCam;
-  cameraBtn.textContent = ballCam ? "🎥 Table Cam (C)" : "🎥 Ball Cam (C)";
+  setCamera((cameraIndex + 1) % CAMERAS.length);
 }
 cameraBtn.addEventListener("click", toggleCamera);
 
@@ -71,16 +82,33 @@ difficultySlider.addEventListener("input", setDifficulty);
 difficultySlider.addEventListener("change", () => difficultySlider.blur());
 setDifficulty();
 
+let mirror = 0;
+const mirrorSlider = document.getElementById("mirrorSlider");
+const mirrorValue = document.getElementById("mirrorValue");
+function setMirror() {
+  mirror = Number(mirrorSlider.value);
+  mirrorValue.textContent = mirror.toFixed(1);
+}
+mirrorSlider.addEventListener("input", setMirror);
+mirrorSlider.addEventListener("change", () => mirrorSlider.blur());
+setMirror();
+
 let zoom = 1;
 window.addEventListener("wheel", e => {
   e.preventDefault();
   zoom = Math.min(4, Math.max(0.5, zoom * Math.exp(-e.deltaY * 0.002)));
 }, { passive: false });
 
+canvas.addEventListener("pointerdown", e => canvas.setPointerCapture(e.pointerId));
+canvas.addEventListener("pointermove", e => {
+  if (canvas.hasPointerCapture(e.pointerId)) orbitCamera(e.movementX, e.movementY);
+});
+canvas.addEventListener("dblclick", () => setCamera(cameraIndex));
+
 let screenInsets = { top: 0, bottom: 0 };
 
 function measureInsets() {
-  const rects = [...document.querySelectorAll("#hud, #difficulty, #controls, .pad, #touchLaunch")]
+  const rects = [...document.querySelectorAll("#hud, .setting, #controls, .pad, #touchLaunch")]
     .map(el => el.getBoundingClientRect()).filter(r => r.height > 0);
   const h = window.innerHeight;
   const padsBeside = document.body.classList.contains("touch") && window.innerWidth > h;
@@ -115,7 +143,7 @@ function frame(now) {
   const dt = Math.min((now - last) / 1000, 1 / 30);
   last = now;
   stepPhysics(dt);
-  render(screenInsets, ballCam, zoom);
+  render(screenInsets, CAMERAS[cameraIndex].ballCam, zoom, mirror);
   updateHud();
   requestAnimationFrame(frame);
 }

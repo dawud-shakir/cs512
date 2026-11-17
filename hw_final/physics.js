@@ -8,7 +8,8 @@ const GATE_X = 9.2;
 const GATE_HALF = 2.0;
 const TILT_MAX = 0.08;
 const TILT_SPEED = 0.6;
-const TILT_GRAVITY = 150;
+const TILT_GRAVITY = 750;
+const ARROW_REACH = 1.0, ARROW_BOOST = 2, LANE_BOOST = 4, ARROW_LIT = 0.25;
 const AIM_SPACING = 0.4, AIM_MARGIN = 0.05, AIM_SPEED_STEP = 2, AIM_TARGET_SPREAD = 1.5, AIM_TARGET_STEP = 0.25;
 
 function arc(cx, cy, r, from, to, n = 10) {
@@ -42,6 +43,16 @@ function makeFlipper(pivot, side, restAngle = -0.5, upAngle = 0.45) {
     pressed: false,
     kicking: false,
   };
+}
+
+function arrowRow(start, step, count, dir, boost = ARROW_BOOST) {
+  return Array.from({ length: count }, (_, i) => ({
+    p: [start[0] + step[0] * i, start[1] + step[1] * i],
+    dir,
+    boost: boost * (i + 1),
+    lit: 0,
+    over: false,
+  }));
 }
 
 const FIELDS = [
@@ -110,6 +121,11 @@ const table = {
     makeFlipper([13.0, 4.6], -1),
     makeFlipper([0.6, 24], +1, -0.3, 0.2),
     ...GATES.flatMap(g => g.flippers),
+  ],
+  arrows: [
+    ...arrowRow([19.2, 3.01], [0, 2.6], 10, [0, 1], LANE_BOOST),
+    ...arrowRow([13.59, 33.2], [-2, 0], 4, [-1, 0]),
+    ...arrowRow([9.2, 47.52], [0, 2], 7, [0, 1]),
   ],
 };
 
@@ -221,6 +237,18 @@ function collideFlippers(ball) {
   }
 }
 
+function crossArrows(ball) {
+  for (const a of table.arrows) {
+    const over = Math.hypot(ball.p[0] - a.p[0], ball.p[1] - a.p[1]) < ARROW_REACH;
+    if (over && !a.over) {
+      a.lit = ARROW_LIT;
+      ball.v[0] += a.boost * a.dir[0];
+      ball.v[1] += a.boost * a.dir[1];
+    }
+    a.over = over;
+  }
+}
+
 function isClear(p, v, goalY) {
   const fall = 0.5 * GRAVITY, t = (v[1] - Math.sqrt(v[1] * v[1] - 4 * fall * (goalY - p[1]))) / (2 * fall);
   if (!(t > 0)) return false;
@@ -280,6 +308,7 @@ function stepPhysics(dt) {
   const tiltTarget = [right - left, up - down].map(d => TILT_MAX * d);
   game.tilt = game.tilt.map((t, i) => approach(t, tiltTarget[i], TILT_SPEED * dt));
   for (const bp of table.bumpers) bp.lit = Math.max(0, bp.lit - dt);
+  for (const a of table.arrows) a.lit = Math.max(0, a.lit - dt);
 
   for (let i = 0; i < SUBSTEPS; i++) {
     moveFlippers(h);
@@ -296,6 +325,7 @@ function stepPhysics(dt) {
     collideWalls(ball);
     collideBumpers(ball);
     collideFlippers(ball);
+    crossArrows(ball);
 
     const dx = ball.p[0] - x, dy = ball.p[1] - y, d = Math.hypot(dx, dy);
     if (d > 1e-6) ball.rotation = multiply(rotateAxis([-dy / d, dx / d, 0], d / BALL_RADIUS), ball.rotation);
