@@ -35,14 +35,18 @@
     b { display: block; margin-bottom: 6px; font-size: 17px; font-weight: 700; }
     canvas {
       display: block;
+      width: 100%;
+      aspect-ratio: 1512 / 740;
+      box-sizing: border-box;
       border: 5px solid #1a2961;
       border-radius: 18px;
       box-shadow: 6px 6px 0 #8c9ed1;
       touch-action: none;
     }
     .layout { display: flex; gap: 18px; align-items: flex-start; }
-    .main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+    .main { display: flex; flex-direction: column; gap: 18px; min-width: 0; flex: 1; }
     .stage { display: flex; gap: 18px; align-items: flex-start; }
+    .view { flex: 1; min-width: 0; }
     .editors { display: flex; flex-direction: column; gap: 18px; }
     textarea {
       display: block;
@@ -68,6 +72,19 @@
     .control-row span { font-weight: 700; }
     .control-row:has(input:disabled) { color: #8c9ed1; }
     input[type="range"] { accent-color: #2961cc; }
+    button {
+      margin-top: 12px;
+      padding: 4px 14px;
+      font: inherit;
+      font-weight: 700;
+      color: #fff;
+      background: #2961cc;
+      border: 3px solid #1a2961;
+      border-radius: 10px;
+      box-shadow: 3px 3px 0 #8c9ed1;
+      cursor: pointer;
+    }
+    button:active { transform: translate(3px, 3px); box-shadow: none; }
     select {
       margin-top: 6px;
       padding: 4px 8px;
@@ -102,7 +119,7 @@
           <pre id="shaderError"></pre>
         </div>
 
-        <div>
+        <div class="view">
           <canvas id="glcanvas" width="1512" height="740"></canvas>
 
           <div class="panels">
@@ -132,22 +149,54 @@
                 <input type="range" id="fluffiness" min="0.05" max="0.6" step="0.01" value="0.35">
                 <span id="fluffinessValue">0.35</span>
               </div>
+              <div class="control-row">
+                <label for="fadeStart">Floor Fade Start:</label>
+                <input type="range" id="fadeStart" min="0" max="200" value="0">
+                <span id="fadeStartValue">0</span>
+              </div>
+              <div class="control-row">
+                <label for="fadeLength">Floor Fade Length:</label>
+                <input type="range" id="fadeLength" min="1" max="200" value="50">
+                <span id="fadeLengthValue">50</span>
+              </div>
+              <div class="control-row">
+                <label for="horizon">Horizon Band:</label>
+                <input type="range" id="horizon" min="0" max="0.2" step="0.01" value="0">
+                <span id="horizonValue">0</span>
+              </div>
+              <div class="control-row">
+                <label for="fogStart">Fog Start:</label>
+                <input type="range" id="fogStart" min="0" max="100" value="22">
+                <span id="fogStartValue">22</span>
+              </div>
+              <div class="control-row">
+                <label for="fogDensity">Fog Density:</label>
+                <input type="range" id="fogDensity" min="0" max="0.1" step="0.001" value="0.02">
+                <span id="fogDensityValue">0.02</span>
+              </div>
             </div>
 
             <div class="glass">
               <label for="method">Glass:</label><br>
               <select id="method">
-                <option value="0">Dominant ray (F &gt; 0.5)</option>
+                <option value="0">Dominant ray</option>
                 <option value="1" selected>Fresnel blend</option>
+                <option value="3">Fresnel blend (every hit)</option>
                 <option value="2">Monte Carlo</option>
               </select>
               <div class="controls">
+                <div class="control-row">
+                  <label for="ior">IOR:</label>
+                  <input type="range" id="ior" min="1" max="2.5" step="0.01" value="1.5">
+                  <span id="iorValue">1.5</span>
+                </div>
                 <div class="control-row">
                   <label for="samples">Samples:</label>
                   <input type="range" id="samples" min="1" max="64" value="16">
                   <span id="samplesValue">16</span>
                 </div>
               </div>
+              <button id="motion">Pause</button>
             </div>
           </div>
         </div>
@@ -172,21 +221,30 @@ uniform float u_ambientStrength; //Ambient fill light for better visual
 uniform float u_shininess;
 uniform float u_outline;
 uniform float u_fluffiness;
+uniform float u_fadeStart;
+uniform float u_fadeLength;
+uniform float u_horizon;
+uniform float u_fogStart;
+uniform float u_fogDensity;
 uniform mat4 u_cameraLookat;
 
 uniform int u_glassMethod;
 uniform int u_samples;
-uniform highp sampler2D u_armTriangles;
+uniform float u_ior;
+
 
 out vec4 fragColor;
 
 const float LIGHT_POWER = 3.0;
 const float FLOOR_Y = -2.0;
 const float CHECKER_SIZE = 1.0;
-const float GLASS_IOR = 1.5;  // refractive index of the glass sphere
 const vec3 SUN_DIR = vec3(0.784, 0.588, 0.196);
+const vec3 HORIZON_COLOR = vec3(0.70, 0.85, 0.98);
 
 const float SUN_POWER = 2.0;
+const int MAX_BOUNCES = 8;
+
+uniform highp sampler2D u_armTriangles;
 
 struct Ray {
     vec3 origin;
@@ -356,7 +414,7 @@ HitData traceScene(Ray ray, bool includeLight) {
         vec3 p = ray.origin + ray.direction * t;
         vec2 cell = floor(p.xz / CHECKER_SIZE);
         vec3 checker = mod(cell.x + cell.y, 2.0) < 1.0 ? lightFloor.color_even : lightFloor.color_odd;
-        vec3 color = mix(checker, 0.5 * (min(lightFloor.color_even, 1.0) + lightFloor.color_odd), smoothstep(15.0, 45.0, t));
+        vec3 color = mix(checker, 0.5 * (min(lightFloor.color_even, 1.0) + lightFloor.color_odd), smoothstep(u_fadeStart, u_fadeStart + u_fadeLength, t));
         hit = HitData(true, t, p, vec3(0.0, 1.0, 0.0), color, lightFloor.reflectivity, false, false);
     }
 
@@ -391,11 +449,11 @@ HitData traceScene(Ray ray, bool includeLight) {
 float glassFresnel(Ray ray, HitData hit, out vec3 reflected, out vec3 refracted) {
     bool inside = dot(ray.direction, hit.normal) > 0.0;
     reflected = reflect(ray.direction, hit.normal);
-    refracted = refraction(ray.direction, hit.normal, GLASS_IOR);
+    refracted = refraction(ray.direction, hit.normal, u_ior);
     bool total_internal_reflection = refracted == vec3(0.0);
     if (total_internal_reflection) return 1.0;
     float cosine = inside ? dot(refracted, hit.normal) : -dot(ray.direction, hit.normal);
-    return schlick(cosine, GLASS_IOR);
+    return schlick(cosine, u_ior);
 }
 
 float hash(vec2 p) {
@@ -418,11 +476,11 @@ vec3 sky(vec3 d) {
     vec3 color = vec3(0.16, 0.38, 0.80);
     if (d.y < 0.45) color = vec3(0.26, 0.53, 0.90);
     if (d.y < 0.2) color = vec3(0.45, 0.70, 0.96);
-    if (d.y < 0.06) color = vec3(0.70, 0.85, 0.98);
+    if (d.y < u_horizon) color = HORIZON_COLOR;
 
-    if (d.y > 0.06) {
+    if (d.y > u_horizon) {
         vec2 uv = d.xz / (d.y + 0.3) * 3.0;
-        float edge = mix(0.55, 1.0 - u_fluffiness, smoothstep(0.06, 0.3, d.y));
+        float edge = mix(0.55, 1.0 - u_fluffiness, smoothstep(u_horizon, 0.3, d.y));
         float n = clouds(uv);
         vec2 grad = vec2(clouds(uv + vec2(0.01, 0.0)) - n, clouds(uv + vec2(0.0, 0.01)) - n) / 0.01;
         float outline = step(abs(n - edge) / max(length(grad), 0.0001), u_outline);
@@ -440,6 +498,13 @@ vec3 sky(vec3 d) {
     float s = max(dot(d, SUN_DIR), 0.0);
     color += vec3(1.0, 0.9, 0.7) * (8.0 * step(0.9985, s) + 0.5 * step(0.995, s));
     return color;
+}
+
+void addFog(float t, inout vec3 color, inout vec3 attenuation) {
+    float d = u_fogDensity * max(t - u_fogStart, 0.0);
+    float fog = 1.0 - exp(-d * d);
+    color += attenuation * fog * pow(HORIZON_COLOR, vec3(2.2));
+    attenuation *= 1.0 - fog;
 }
 
 bool shadeSurface(HitData hit, inout Ray ray, inout vec3 color, inout vec3 attenuation) {
@@ -493,6 +558,7 @@ vec3 traceSingle(Ray ray, int maxBounces, bool stochastic, inout float seed) {
     //use loop to simulate the recursive process as GLSL doesn't support recursions
     for (int bounce = 0; bounce < maxBounces; bounce++) {
         HitData hit = traceScene(ray, true);
+        if (hit.hit) addFog(hit.t, color, attenuation);
 
         if (hit.hit && hit.isGlass) {
             vec3 reflected, refracted;
@@ -516,6 +582,7 @@ vec3 traceBlend(Ray ray, inout float seed) {
 
     for (int bounce = 0; bounce < u_maxBounces; bounce++) {
         HitData hit = traceScene(ray, true);
+        if (hit.hit) addFog(hit.t, color, attenuation);
 
         if (hit.hit && hit.isGlass) {
             vec3 reflected, refracted;
@@ -535,6 +602,50 @@ vec3 traceBlend(Ray ray, inout float seed) {
     return color;
 }
 
+vec3 traceTree(Ray ray) {
+    Ray stackRay[MAX_BOUNCES];
+    vec3 stackAttenuation[MAX_BOUNCES];
+    int stackBounce[MAX_BOUNCES];
+    int stackSize = 1;
+    stackRay[0] = ray;
+    stackAttenuation[0] = vec3(1.0);
+    stackBounce[0] = 0;
+
+    vec3 color = vec3(0.0);
+
+    while (stackSize > 0) {
+        stackSize--;
+        ray = stackRay[stackSize];
+        vec3 attenuation = stackAttenuation[stackSize];
+
+        for (int bounce = stackBounce[stackSize]; bounce < u_maxBounces; bounce++) {
+            HitData hit = traceScene(ray, true);
+            if (hit.hit) addFog(hit.t, color, attenuation);
+
+            if (hit.hit && hit.isGlass) {
+                vec3 reflected, refracted;
+                float F = glassFresnel(ray, hit, reflected, refracted);
+                attenuation *= hit.color;
+
+                if (F < 1.0 && bounce + 1 < u_maxBounces) {
+                    stackRay[stackSize] = Ray(hit.point + refracted * 0.001, refracted);
+                    stackAttenuation[stackSize] = attenuation * (1.0 - F);
+                    stackBounce[stackSize] = bounce + 1;
+                    stackSize++;
+                }
+
+                ray = Ray(hit.point + reflected * 0.001, reflected);
+                attenuation *= F;
+                continue;
+            }
+
+            if (!shadeSurface(hit, ray, color, attenuation)) break;
+        }
+    }
+
+    return color;
+}
+
 vec3 trace(Ray ray) {
     float seed = mod(u_time, 10.0) * 10.0;
 
@@ -543,6 +654,7 @@ vec3 trace(Ray ray) {
     // (option 3): Monte Carlo Sampling (multiple rays per pixel), reflect with probability F (random() < schlick_value), else refract, and average many samples per pixel
     if (u_glassMethod == 0) return traceSingle(ray, u_maxBounces, false, seed);
     if (u_glassMethod == 1) return traceBlend(ray, seed);
+    if (u_glassMethod == 3) return traceTree(ray);
 
     vec3 color = vec3(0.0);
     for (int i = 0; i < u_samples; i++) {
@@ -772,7 +884,21 @@ function parseMTL(text) {
   const samples = document.getElementById("samples");
   const outline = document.getElementById("outline");
   const fluffiness = document.getElementById("fluffiness");
-  for (const slider of [bounces, ambient, shininess, samples, outline, fluffiness]) {
+  const fadeStart = document.getElementById("fadeStart");
+  const fadeLength = document.getElementById("fadeLength");
+  const horizon = document.getElementById("horizon");
+  const fogStart = document.getElementById("fogStart");
+  const fogDensity = document.getElementById("fogDensity");
+  const ior = document.getElementById("ior");
+  const motion = document.getElementById("motion");
+  let paused = false;
+  let sceneTime = 0;
+  let lastTime = 0;
+  motion.addEventListener("click", () => {
+    paused = !paused;
+    motion.textContent = paused ? "Play" : "Pause";
+  });
+  for (const slider of [bounces, ambient, shininess, samples, outline, fluffiness, fadeStart, fadeLength, horizon, fogStart, fogDensity, ior]) {
     slider.addEventListener("input", () => document.getElementById(slider.id + "Value").textContent = slider.value);
   }
   const updateSamplesEnabled = () => samples.disabled = method.value !== "2";
@@ -824,16 +950,29 @@ function cross(a, b) {
 
   function render(time) {
     requestAnimationFrame(render);
+    if (!paused) sceneTime += time - lastTime;
+    lastTime = time;
     if (!program) return;
 
+    if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+
     const uniform = name => gl.getUniformLocation(program, name);
-    gl.uniform1f(uniform("u_time"), time / 1000);
+    gl.uniform1f(uniform("u_time"), sceneTime / 1000);
     gl.uniform2f(uniform("u_resolution"), canvas.width, canvas.height);
     gl.uniform1i(uniform("u_maxBounces"), bounces.value);
     gl.uniform1f(uniform("u_ambientStrength"), ambient.value);
     gl.uniform1f(uniform("u_shininess"), shininess.value);
     gl.uniform1f(uniform("u_outline"), outline.value);
     gl.uniform1f(uniform("u_fluffiness"), fluffiness.value);
+    gl.uniform1f(uniform("u_fadeStart"), fadeStart.value);
+    gl.uniform1f(uniform("u_fadeLength"), fadeLength.value);
+    gl.uniform1f(uniform("u_horizon"), horizon.value);
+    gl.uniform1f(uniform("u_fogStart"), fogStart.value);
+    gl.uniform1f(uniform("u_fogDensity"), fogDensity.value);
 
     const sp = Math.sin(pitch), cp = Math.cos(pitch);
     const sy = Math.sin(yaw), cy = Math.cos(yaw);
@@ -850,6 +989,7 @@ function cross(a, b) {
 
     gl.uniform1i(uniform("u_glassMethod"), method.value);
     gl.uniform1i(uniform("u_samples"), samples.value);
+    gl.uniform1f(uniform("u_ior"), ior.value);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
   requestAnimationFrame(render);
