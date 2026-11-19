@@ -102,7 +102,7 @@ function createFlipper(length, radius, segments) {
   });
   for (let i = 0; i + 1 < rim.length; i++) {
     const b = i * 2;
-    idx.push(b, b + 2, b + 3, b, b + 3, b + 1);
+    idx.push(b, b + 1, b + 3, b, b + 3, b + 2);
   }
 
   for (const z of [1, 0]) {
@@ -116,7 +116,11 @@ function createFlipper(length, radius, segments) {
       nrm.push(0, 0, 2 * z - 1);
       tex.push((x + radius) / (length + 2 * radius), (y + radius) / (2 * radius));
     }
-    for (let i = 0; i + 1 < rim.length; i++) idx.push(center, center + 1 + i, center + 2 + i);
+    for (let i = 0; i + 1 < rim.length; i++) {
+      const a = center + 1 + i, b = a + 1;
+      if (z > 0) idx.push(center, b, a);
+      else idx.push(center, a, b);
+    }
   }
 
   return { positions: new Float32Array(pos), normals: new Float32Array(nrm), texCoords: new Float32Array(tex), indices: new Uint16Array(idx) };

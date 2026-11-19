@@ -43,10 +43,11 @@ uniform vec3 uLightColor[2];
 uniform vec3 uUp;
 uniform vec3 uFogColor;
 uniform vec3 uSkyColor;
-uniform vec3 uFloorCorner;
-uniform vec3 uFloorU;
-uniform vec3 uFloorV;
+uniform vec3 uBoardOrigin;
+uniform vec3 uBoardX;
+uniform vec3 uBoardY;
 uniform vec3 uFloorNormal;
+uniform vec4 uFloorRects[3];
 uniform vec4 uClipPlane;
 uniform vec2 uScreenSize;
 uniform vec3 uFloorEmissive;
@@ -63,7 +64,9 @@ uniform float uMirror;
 uniform float uShade;
 
 uniform sampler2D uTexture;
-uniform sampler2D uFloorTexture;
+uniform sampler2D uFloorTex0;
+uniform sampler2D uFloorTex1;
+uniform sampler2D uFloorTex2;
 uniform sampler2D uReflection;
 uniform highp sampler2DShadow uShadowMap;
 uniform int uMapping;
@@ -82,30 +85,48 @@ float schlick(float F0, vec3 N, vec3 V) {
   return F0 + (1.0 - F0) * pow(1.0 - max(dot(N, V), 0.0), 5.0);
 }
 
-vec3 playfield(vec3 R) {
-  vec3 n = uFloorNormal;
-  float t = dot(uFloorCorner - vPosition, n) / min(dot(R, n), -1e-4);
-  vec3 h = vPosition + t * R - uFloorCorner;
-  vec2 uv = vec2(dot(h, uFloorU) / dot(uFloorU, uFloorU), dot(h, uFloorV) / dot(uFloorV, uFloorV));
-  vec3 color = uFloorEmissive * texture(uFloorTexture, uv).rgb;
-  bool hit = dot(R, n) < 0.0 && all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)));
-  return hit ? color : vec3(0.01);
-}
-
-float arrowGlow() {
-  vec2 p = mix(uFloorRect.xy, uFloorRect.zw, vTexCoord);
+float arrowGlowAt(vec2 p) {
   float glow = 0.0;
   for (int i = 0; i < MAX_ARROWS; i++)
     glow += uArrows[i].z * (1.0 - smoothstep(0.8, 1.0, distance(p, uArrows[i].xy)));
   return glow;
 }
 
+vec3 sampleField(int idx, vec2 uv, vec2 p, float lod) {
+  vec3 texel = idx == 0 ? textureLod(uFloorTex0, uv, lod).rgb
+             : idx == 1 ? textureLod(uFloorTex1, uv, lod).rgb
+                        : textureLod(uFloorTex2, uv, lod).rgb;
+  vec3 emission = uFloorEmissive * texel;
+  float glow = arrowGlowAt(p);
+  return emission * (1.0 + ARROW_FLASH * glow) + ARROW_HALO * glow * uFloorEmissive;
+}
+
+vec3 playfield(vec3 R) {
+  vec3 n = uFloorNormal;
+  float denom = dot(R, n);
+  if (denom >= -1e-4) return vec3(0.01);
+  float t = dot(uBoardOrigin - vPosition, n) / denom;
+  if (t <= 0.0) return vec3(0.01);
+  vec3 h = vPosition + t * R - uBoardOrigin;
+  vec2 p = vec2(dot(h, uBoardX), dot(h, uBoardY));
+  float lod = log2(1.0 + t * 0.2);
+  float rd = FOG_DENSITY * max(t - FOG_START * 0.5, 0.0);
+  float atten = exp(-rd * rd);
+  for (int i = 0; i < 3; i++) {
+    vec4 r = uFloorRects[i];
+    if (all(greaterThanEqual(p, r.xy)) && all(lessThanEqual(p, r.zw))) {
+      vec2 uv = (p - r.xy) / (r.zw - r.xy);
+      return mix(uFogColor, sampleField(i, uv, p, lod), atten);
+    }
+  }
+  return vec3(0.01);
+}
+
 vec3 environment(vec3 R) {
-  float h = dot(R, uUp);
-  vec3 horizon = 4.0 * uFogColor;
-  vec3 ground = playfield(R);
-  return h > 0.0 ? mix(horizon, uSkyColor, smoothstep(0.0, 0.5, h))
-                 : mix(horizon, ground, smoothstep(0.0, 0.2, -h));
+  float h = dot(R, uFloorNormal);
+  vec3 horizon = 2.2 * uFogColor;
+  if (h > 0.0) return mix(horizon, uSkyColor, smoothstep(0.0, 0.5, h));
+  return mix(horizon, playfield(R), smoothstep(0.0, 0.25, -h));
 }
 
 void main() {
@@ -120,13 +141,13 @@ void main() {
   result += shadow * calculateLight(0, N, V, uColor);
   result += calculateLight(1, N, V, uColor);
 
-  float F = schlick(uReflectivity, N, V);
-  result += (uReflectivity > 0.0 ? F : 0.0) * environment(reflect(-V, N));
+  if (uReflectivity > 0.0)
+    result += schlick(uReflectivity, N, V) * environment(reflect(-V, N));
 
   vec3 texel = texture(uTexture, vTexCoord).rgb;
   vec3 emission = uMapping == NO_MAPPING ? uEmissive : uEmissive * texel;
   if (uMapping == FLOOR_MAPPING) {
-    float glow = arrowGlow();
+    float glow = arrowGlowAt(mix(uFloorRect.xy, uFloorRect.zw, vTexCoord));
     emission = emission * (1.0 + ARROW_FLASH * glow) + ARROW_HALO * glow * uEmissive;
   }
   result += emission + uTopEmissive * smoothstep(0.7, 0.9, dot(N, uUp));
@@ -223,7 +244,6 @@ void main() {
 const COMPOSITE_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
-const float BLOOM_STRENGTH = 0.35;
 const float EXPOSURE = 1.4;
 
 in vec2 vUv;
@@ -233,13 +253,14 @@ uniform sampler2D uBloom0;
 uniform sampler2D uBloom1;
 uniform sampler2D uBloom2;
 uniform sampler2D uBloom3;
+uniform float uBloomStrength;
 
 out vec4 fragColor;
 
 void main() {
   vec3 bloom = texture(uBloom0, vUv).rgb + texture(uBloom1, vUv).rgb
              + texture(uBloom2, vUv).rgb + texture(uBloom3, vUv).rgb;
-  vec3 hdr = EXPOSURE * (texture(uScene, vUv).rgb + BLOOM_STRENGTH * bloom);
+  vec3 hdr = EXPOSURE * (texture(uScene, vUv).rgb + uBloomStrength * bloom);
   vec2 c = vUv - 0.5;
   fragColor = vec4(hdr / (1.0 + hdr) * (1.0 - 0.6 * dot(c, c)), 1.0);
 }
@@ -297,6 +318,7 @@ const CAMERA = {
 
 const canvas = document.getElementById("glcanvas");
 const gl = canvas.getContext("webgl2", { powerPreference: "high-performance" });
+if (!gl) throw new Error("WebGL 2 is not supported");
 if (!gl.getExtension("EXT_color_buffer_float")) throw new Error("EXT_color_buffer_float is not supported");
 
 function compile(type, source) {
@@ -328,14 +350,16 @@ function getUniforms(prog, names) {
 const program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER);
 const uniforms = getUniforms(program, ["uModelView", "uProjection", "uShadowMatrix", "uTexRepeat", "uLightDir",
   "uLightColor", "uUp", "uFogColor", "uSkyColor", "uColor", "uEmissive", "uTopEmissive", "uKs", "uShininess",
-  "uReflectivity", "uMirror", "uShade", "uMapping", "uTexture", "uShadowMap", "uFloorCorner", "uFloorU", "uFloorV",
-  "uFloorNormal", "uFloorEmissive", "uFloorTexture", "uClipPlane", "uScreenSize", "uReflection", "uFloorRect",
-  "uArrows"]);
+  "uReflectivity", "uMirror", "uShade", "uMapping", "uTexture", "uShadowMap", "uBoardOrigin", "uBoardX", "uBoardY",
+  "uFloorNormal", "uFloorRects", "uFloorEmissive", "uFloorTex0", "uFloorTex1", "uFloorTex2", "uClipPlane",
+  "uScreenSize", "uReflection", "uFloorRect", "uArrows"]);
 gl.useProgram(program);
 gl.uniform1i(uniforms.uTexture, 0);
 gl.uniform1i(uniforms.uShadowMap, 1);
-gl.uniform1i(uniforms.uFloorTexture, 2);
+gl.uniform1i(uniforms.uFloorTex0, 2);
 gl.uniform1i(uniforms.uReflection, 3);
+gl.uniform1i(uniforms.uFloorTex1, 4);
+gl.uniform1i(uniforms.uFloorTex2, 5);
 
 const shadowProgram = createProgram(SHADOW_VERTEX_SHADER, SHADOW_FRAGMENT_SHADER);
 const uLightMVP = gl.getUniformLocation(shadowProgram, "uLightMVP");
@@ -349,9 +373,10 @@ gl.useProgram(blurProgram);
 gl.uniform1i(blurUniforms.uImage, 0);
 
 const compositeProgram = createProgram(POST_VERTEX_SHADER, COMPOSITE_FRAGMENT_SHADER);
-const compositeUniforms = getUniforms(compositeProgram, ["uScene", "uBloom0", "uBloom1", "uBloom2", "uBloom3"]);
+const compositeUniforms = getUniforms(compositeProgram, ["uScene", "uBloom0", "uBloom1", "uBloom2", "uBloom3", "uBloomStrength"]);
 gl.useProgram(compositeProgram);
 ["uScene", "uBloom0", "uBloom1", "uBloom2", "uBloom3"].forEach((name, i) => gl.uniform1i(compositeUniforms[name], i));
+gl.uniform1f(compositeUniforms.uBloomStrength, 0.35);
 
 const shadowMap = gl.createTexture();
 gl.bindTexture(gl.TEXTURE_2D, shadowMap);
@@ -389,7 +414,8 @@ for (let i = 0; i < BLOOM_LEVELS; i++) bloomLevels.push({ temp: createTarget(), 
 
 const colorRenderbuffer = createRenderbuffer();
 const depthRenderbuffer = createRenderbuffer();
-const samples = Math.min(4, gl.getInternalformatParameter(gl.RENDERBUFFER, gl.RGBA16F, gl.SAMPLES)[0]);
+const supportedSamples = gl.getInternalformatParameter(gl.RENDERBUFFER, gl.RGBA16F, gl.SAMPLES);
+const samples = Math.min(4, supportedSamples && supportedSamples.length ? supportedSamples[0] : 0);
 const msaaFramebuffer = gl.createFramebuffer();
 gl.bindFramebuffer(gl.FRAMEBUFFER, msaaFramebuffer);
 gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, colorRenderbuffer);
@@ -451,7 +477,28 @@ function createMesh({ positions, normals, texCoords, indices }) {
 const cubeMesh = createMesh(createCube());
 const cylinderMesh = createMesh(createCylinder(32));
 const sphereMesh = createMesh(createSphere(32));
-const flipperMesh = createMesh(createFlipper(table.flippers[0].length, table.flippers[0].radius, 16));
+const flipperMeshes = new Map();
+function getFlipperMesh(f) {
+  const key = `${f.length}:${f.radius}`;
+  let mesh = flipperMeshes.get(key);
+  if (!mesh) {
+    mesh = createMesh(createFlipper(f.length, f.radius, 16));
+    flipperMeshes.set(key, mesh);
+  }
+  return mesh;
+}
+
+const WALL_POSTS = (() => {
+  const seen = new Map();
+  for (const w of table.walls) {
+    if (w.hidden) continue;
+    for (const p of [w.a, w.b]) {
+      const key = `${Math.round(p[0] * 1e4)},${Math.round(p[1] * 1e4)}`;
+      if (!seen.has(key)) seen.set(key, p);
+    }
+  }
+  return [...seen.values()];
+})();
 
 function createTrailBuffer(name, size) {
   const buffer = gl.createBuffer();
@@ -514,10 +561,14 @@ const MATERIALS = {
 const fieldMaterials = FIELD_FLOORS.map((f, i) =>
   ({ ...MATERIALS.playfield, texture: fieldTextures[i], mirror: f.mirror, rect: floorRect(i) }));
 
-function updatePalette() {
-  const target = PALETTES[(3 - game.balls) % PALETTES.length];
+const smoothFactor = (rate60, dt) => 1 - Math.pow(1 - rate60, dt * 60);
+
+function updatePalette(dt, paletteOverride = -1) {
+  const idx = paletteOverride >= 0 ? paletteOverride : clamp(3 - game.balls, 0, PALETTES.length - 1);
+  const target = PALETTES[idx];
+  const t = smoothFactor(0.04, dt);
   for (const key in palette)
-    palette[key].forEach((v, i) => { palette[key][i] = v + (target[key][i] - v) * 0.04; });
+    palette[key].forEach((v, i) => { palette[key][i] = v + (target[key][i] - v) * t; });
 }
 
 gl.enable(gl.DEPTH_TEST);
@@ -571,11 +622,12 @@ function orbit(eye, target, pivot) {
   return lookAt(transformPoint(m, eye), transformPoint(m, target), transformDirection(m, [0, 0, 1]));
 }
 
-function chaseView() {
+function chaseView(dt) {
   const [x, y] = game.ball.p, vx = game.ball.v[0];
   const eye = [x + vx * 0.02, y - 3.2, 1.85], target = [x + vx * 0.08, y + 5, 0.4];
-  chaseEye = chaseEye ? lerp(chaseEye, eye, 0.22) : eye;
-  chaseTarget = chaseTarget ? lerp(chaseTarget, target, 0.22) : target;
+  const t = smoothFactor(0.22, dt);
+  chaseEye = chaseEye ? lerp(chaseEye, eye, t) : eye;
+  chaseTarget = chaseTarget ? lerp(chaseTarget, target, t) : target;
   return orbit(transformPoint(board, chaseEye), transformPoint(board, chaseTarget), transformPoint(board, [x, y, BALL_RADIUS]));
 }
 
@@ -671,8 +723,10 @@ function drawWall({ a, b, hidden }) {
   const angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
   draw(cubeMesh, multiply(translate((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, WALL_HEIGHT / 2),
     rotateZ(angle), scale(len / 2, WALL_THICK / 2, WALL_HEIGHT / 2)), MATERIALS.wall);
-  draw(cylinderMesh, post(a[0], a[1], WALL_THICK / 2, 0, WALL_HEIGHT), MATERIALS.wall);
-  draw(cylinderMesh, post(b[0], b[1], WALL_THICK / 2, 0, WALL_HEIGHT), MATERIALS.wall);
+}
+
+function drawWallPost([x, y]) {
+  draw(cylinderMesh, post(x, y, WALL_THICK / 2, 0, WALL_HEIGHT), MATERIALS.wall);
 }
 
 function drawBumper(bp) {
@@ -684,11 +738,12 @@ function drawBumper(bp) {
 }
 
 function drawFlipper(f) {
+  const mesh = getFlipperMesh(f);
   const worldAngle = f.side > 0 ? f.angle : Math.PI - f.angle;
   const frame = multiply(translate(f.pivot[0], f.pivot[1], 0), rotateZ(worldAngle));
   const h = FLIPPER_HEIGHT;
-  draw(flipperMesh, multiply(frame, scale(1, 1, 0.25)), MATERIALS.rubber);
-  draw(flipperMesh, multiply(frame, translate(0, 0, 0.25), scale(1, 1, h - 0.25)), MATERIALS.flipper, f.pressed ? 1.6 : 1);
+  draw(mesh, multiply(frame, scale(1, 1, 0.25)), MATERIALS.rubber);
+  draw(mesh, multiply(frame, translate(0, 0, 0.25), scale(1, 1, h - 0.25)), MATERIALS.flipper, f.pressed ? 1.6 : 1);
   draw(cylinderMesh, multiply(frame, post(0, 0, 0.22, h, 0.08)), MATERIALS.steel);
 }
 
@@ -709,6 +764,7 @@ function drawScene() {
   parent = board;
   table.fields.forEach(drawCabinet);
   table.walls.forEach(drawWall);
+  WALL_POSTS.forEach(drawWallPost);
   table.bumpers.forEach(drawBumper);
   table.flippers.forEach(drawFlipper);
   drawPlunger();
@@ -727,16 +783,18 @@ function floorRect(i) {
   return [x0, i === 0 ? y0 + CABINET.front : y0, x1, y1];
 }
 
+const FLOOR_RECTS_FLAT = new Float32Array(table.fields.flatMap((_, i) => floorRect(i)));
+
 function setView(matrix, clipPlane) {
   view = matrix;
-  const [x0, y0, x1, y1] = floorRect(game.field);
   const floorView = multiply(view, board);
   gl.uniform3fv(uniforms.uLightDir, LIGHTS.flatMap(l => transformDirection(view, l.pos.map((v, i) => v - TABLE_CENTER[i]))));
   gl.uniform3fv(uniforms.uUp, transformDirection(view, [0, 0, 1]));
-  gl.uniform3fv(uniforms.uFloorCorner, transformPoint(floorView, [x0, y0, 0]));
-  gl.uniform3fv(uniforms.uFloorU, transformDirection(floorView, [x1 - x0, 0, 0]));
-  gl.uniform3fv(uniforms.uFloorV, transformDirection(floorView, [0, y1 - y0, 0]));
+  gl.uniform3fv(uniforms.uBoardOrigin, transformPoint(floorView, [0, 0, 0]));
+  gl.uniform3fv(uniforms.uBoardX, transformDirection(floorView, [1, 0, 0]));
+  gl.uniform3fv(uniforms.uBoardY, transformDirection(floorView, [0, 1, 0]));
   gl.uniform3fv(uniforms.uFloorNormal, transformDirection(floorView, [0, 0, 1]));
+  gl.uniform4fv(uniforms.uFloorRects, FLOOR_RECTS_FLAT);
   gl.uniform4fv(uniforms.uClipPlane, clipPlane);
 }
 
@@ -757,10 +815,28 @@ function drawMirror(camera, mirror) {
   gl.activeTexture(gl.TEXTURE0);
 }
 
-function updateTrail() {
-  if (game.state !== "play") trail.length = 0;
-  else trail.unshift([...game.ball.p]);
-  if (trail.length > TRAIL_LENGTH) trail.pop();
+let trailAccum = 0;
+const TRAIL_STEP = 1 / 60;
+
+function updateTrail(dt) {
+  if (game.state !== "play") {
+    trail.length = 0;
+    trailAccum = 0;
+    return;
+  }
+  trailAccum += dt;
+  if (trail.length === 0) {
+    trail.unshift([...game.ball.p]);
+    trailAccum = 0;
+    return;
+  }
+  while (trailAccum >= TRAIL_STEP) {
+    trailAccum -= TRAIL_STEP;
+    trail.unshift([...game.ball.p]);
+    if (trail.length > TRAIL_LENGTH) trail.pop();
+  }
+  trail[0][0] = game.ball.p[0];
+  trail[0][1] = game.ball.p[1];
 }
 
 function drawTrail(projection) {
@@ -811,10 +887,11 @@ function drawBloom() {
   }
 }
 
-function drawComposite() {
+function drawComposite(bloomEnabled = true) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.useProgram(compositeProgram);
+  gl.uniform1f(compositeUniforms.uBloomStrength, bloomEnabled ? 0.35 : 0.0);
   [sceneTarget, ...bloomLevels.map(level => level.blur)].forEach((target, i) => {
     gl.activeTexture(gl.TEXTURE0 + i);
     gl.bindTexture(gl.TEXTURE_2D, target.texture);
@@ -825,19 +902,26 @@ function drawComposite() {
 
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
+  const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
+  const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
   if (canvas.width === w && canvas.height === h) return;
   canvas.width = w;
   canvas.height = h;
   resizeTargets(w, h);
 }
 
-function render(insets, ballCam, zoom, strength) {
+function render(dt, insets, ballCam, zoom, strength, dev = {}) {
+  const bloomOn = dev.bloom ?? true;
+  const trailOn = dev.trail ?? true;
+  const shadowsOn = dev.shadows ?? true;
+  const paletteOverride = dev.palette ?? -1;
+  const simDt = dev.simDt ?? dt;
+
   resize();
-  updatePalette();
-  updateTrail();
+  updatePalette(dt, paletteOverride);
+  updateTrail(simDt);
   const field = rect(table.fields[game.field]);
-  cameraRect = cameraRect ? lerp(cameraRect, field, 0.08) : field;
+  cameraRect = cameraRect ? lerp(cameraRect, field, smoothFactor(0.08, dt)) : field;
   const c = center(cameraRect);
   board = multiply(translate(c[0], c[1], 0), rotateY(game.tilt[0]), rotateX(-game.tilt[1]), translate(-c[0], -c[1], 0));
   const mirror = multiply(board, scale(1, 1, -1),
@@ -849,16 +933,18 @@ function render(insets, ballCam, zoom, strength) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
   gl.viewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
   gl.clear(gl.DEPTH_BUFFER_BIT);
-  gl.enable(gl.POLYGON_OFFSET_FILL);
-  gl.polygonOffset(2, 4);
-  shadowPass = true;
-  drawScene();
-  shadowPass = false;
-  gl.disable(gl.POLYGON_OFFSET_FILL);
+  if (shadowsOn) {
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(2, 4);
+    shadowPass = true;
+    drawScene();
+    shadowPass = false;
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+  }
 
   let camera, projection;
   if (ballCam) {
-    camera = chaseView();
+    camera = chaseView(dt);
     projection = perspective(2 * Math.atan(Math.tan(65 * Math.PI / 360) / zoom), canvas.width / canvas.height, 0.2, 120);
   } else {
     chaseEye = chaseTarget = null;
@@ -877,7 +963,11 @@ function render(insets, ballCam, zoom, strength) {
   gl.uniform3fv(uniforms.uFloorEmissive, palette.insert);
   gl.uniform3fv(uniforms.uArrows, table.arrows.flatMap(a => [a.p[0], a.p[1], a.lit / ARROW_LIT]));
   gl.activeTexture(gl.TEXTURE2);
-  gl.bindTexture(gl.TEXTURE_2D, fieldTextures[game.field]);
+  gl.bindTexture(gl.TEXTURE_2D, fieldTextures[0]);
+  gl.activeTexture(gl.TEXTURE4);
+  gl.bindTexture(gl.TEXTURE_2D, fieldTextures[1]);
+  gl.activeTexture(gl.TEXTURE5);
+  gl.bindTexture(gl.TEXTURE_2D, fieldTextures[2]);
   gl.activeTexture(gl.TEXTURE1);
   gl.bindTexture(gl.TEXTURE_2D, shadowMap);
   gl.activeTexture(gl.TEXTURE0);
@@ -890,12 +980,12 @@ function render(insets, ballCam, zoom, strength) {
   setView(camera, NO_CLIP);
   drawScene();
   drawWorld();
-  drawTrail(projection);
+  if (trailOn) drawTrail(projection);
   resolveScene();
 
   gl.disable(gl.DEPTH_TEST);
   gl.bindVertexArray(null);
-  drawBloom();
-  drawComposite();
+  if (bloomOn) drawBloom();
+  drawComposite(bloomOn);
   gl.enable(gl.DEPTH_TEST);
 }

@@ -27,6 +27,12 @@ function playSound(name) {
   source.start();
 }
 
+const heldKeys = new Set();
+function hasHeldKey(predicate) {
+  for (const k of heldKeys) if (predicate(k)) return true;
+  return false;
+}
+
 function startAudio() {
   if (!help.open) audio.resume();
 }
@@ -43,17 +49,40 @@ document.getElementById("helpBtn").addEventListener("click", toggleHelp);
 function onKey(e, down) {
   if (down) setTouchMode(false);
   if (e.repeat) return;
+  if (down) heldKeys.add(e.code);
+  else heldKeys.delete(e.code);
   if (e.code === "KeyH" || (e.code === "Escape" && help.open)) { if (down) toggleHelp(); }
   else if (down && help.open) return;
-  else if (e.code in FLIPPER_KEYS) setFlipper(FLIPPER_KEYS[e.code], down);
-  else if (e.code in TILT_KEYS) setTilt(TILT_KEYS[e.code], down);
-  else if (PLUNGER_KEYS.has(e.code)) setPlunger(down);
-  else if (e.code === "KeyC") { if (down) toggleCamera(); }
-  else return;
+  else if (e.code in FLIPPER_KEYS) {
+    const side = FLIPPER_KEYS[e.code];
+    setFlipper(side, hasHeldKey(k => FLIPPER_KEYS[k] === side));
+  } else if (e.code in TILT_KEYS) {
+    const dir = TILT_KEYS[e.code];
+    setTilt(dir, hasHeldKey(k => TILT_KEYS[k] === dir));
+  } else if (PLUNGER_KEYS.has(e.code)) {
+    const held = hasHeldKey(k => PLUNGER_KEYS.has(k));
+    if (down || !held) setPlunger(held);
+  } else if (e.code === "KeyC") {
+    if (down) toggleCamera();
+  } else if (typeof devTools === "undefined" || !devTools.handleKey(e.code, down)) return;
   e.preventDefault();
 }
 window.addEventListener("keydown", e => onKey(e, true));
 window.addEventListener("keyup", e => onKey(e, false));
+
+function releaseAllInputs() {
+  if (heldKeys.size === 0) return;
+  heldKeys.clear();
+  setFlipper(0, false);
+  setFlipper(1, false);
+  for (let i = 0; i < 4; i++) setTilt(i, false);
+  if (game.charging) {
+    game.charging = false;
+    game.charge = 0;
+  }
+}
+window.addEventListener("blur", releaseAllInputs);
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAllInputs(); });
 
 function holdControl(el, onChange) {
   const fingers = new Set();
@@ -171,13 +200,16 @@ measureInsets();
 
 let last;
 function frame(now) {
-  const dt = Math.min((now - last) / 1000, 1 / 30);
+  const dt = Math.max(0, Math.min((now - last) / 1000, 1 / 30));
   last = now;
-  if (!help.open) stepPhysics(dt);
+  const hasDev = typeof devTools !== "undefined";
+  const simDt = hasDev ? devTools.stepDt(dt) : dt;
+  if (!help.open) stepPhysics(simDt);
   for (const name of game.sounds) playSound(name);
   game.sounds.clear();
-  render(screenInsets, CAMERAS[cameraIndex].ballCam, zoom, mirror);
+  render(dt, screenInsets, CAMERAS[cameraIndex].ballCam, zoom, mirror, hasDev ? devTools.renderOptions(simDt) : undefined);
   updateHud();
+  if (hasDev) devTools.updateStats(dt, zoom);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(now => { last = now; requestAnimationFrame(frame); });
