@@ -2,7 +2,7 @@ const devTools = (() => {
   const DROP_POINTS = [[9.2, 29], [9.2, 60.8], [9.2, 72]];
   const state = {
     open: false,
-    speed: 1,
+    speed: 0.35,
     paused: false,
     stepPending: false,
     bloom: true,
@@ -57,8 +57,8 @@ const devTools = (() => {
   panel.innerHTML = `
     <div class="dev-row">
       <span>Speed</span>
-      <input id="devSpeed" type="range" min="0.05" max="2" step="0.05" value="1">
-      <output id="devSpeedValue">1.00x</output>
+      <input id="devSpeed" type="range" min="0.05" max="2" step="0.05" value="0.35">
+      <output id="devSpeedValue">0.35x</output>
     </div>
     <div class="dev-btns">
       <button id="devPause">Pause (P)</button>
