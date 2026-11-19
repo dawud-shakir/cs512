@@ -11,6 +11,7 @@ const TILT_SPEED = 0.6;
 const TILT_GRAVITY = 750;
 const ARROW_REACH = 1.0, ARROW_BOOST = 2, LANE_BOOST = 4, ARROW_LIT = 0.25;
 const AIM_SPACING = 0.4, AIM_MARGIN = 0.05, AIM_SPEED_STEP = 2, AIM_TARGET_SPREAD = 1.5, AIM_TARGET_STEP = 0.25;
+const WALL_SOUND_DV = 3;
 
 function arc(cx, cy, r, from, to, n = 10) {
   const pts = [];
@@ -145,6 +146,7 @@ const game = {
   state: "ready",
   charge: 0,
   charging: false,
+  sounds: new Set(),
 };
 
 const ballOnPlunger = () => game.ball.p[0] > LANE_X && game.ball.p[1] < 2;
@@ -168,6 +170,7 @@ function setPlunger(down) {
   if (game.charging && ballOnPlunger()) {
     game.ball.v = [0, 36 + 20 * game.charge];
     game.state = "play";
+    game.sounds.add("launch");
   }
   game.charging = false;
   game.charge = 0;
@@ -177,6 +180,7 @@ function setTilt(i, down) { game.tilting[i] = down; }
 
 function setFlipper(i, down) {
   for (const f of table.flippers) if (f.side === (i === 0 ? 1 : -1)) f.pressed = down;
+  if (down) game.sounds.add("flipper");
 }
 
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
@@ -204,8 +208,11 @@ function resolve(ball, q, reach, restitution, vs = [0, 0]) {
 }
 
 function collideWalls(ball) {
-  for (const w of table.walls)
-    resolve(ball, closestOnSegment(ball.p, w.a, w.b), BALL_RADIUS, 0.5);
+  for (const w of table.walls) {
+    const [vx, vy] = ball.v;
+    if (resolve(ball, closestOnSegment(ball.p, w.a, w.b), BALL_RADIUS, 0.5)
+        && Math.hypot(ball.v[0] - vx, ball.v[1] - vy) > WALL_SOUND_DV) game.sounds.add("wall");
+  }
 }
 
 function collideBumpers(ball) {
@@ -220,6 +227,7 @@ function collideBumpers(ball) {
     }
     game.score += bp.points;
     bp.lit = 0.15;
+    game.sounds.add("bumper");
   }
 }
 

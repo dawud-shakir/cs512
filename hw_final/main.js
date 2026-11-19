@@ -5,17 +5,47 @@ const FLIPPER_KEYS = {
 const TILT_KEYS = { KeyA: 0, KeyD: 1, KeyS: 2, KeyW: 3 };
 const PLUNGER_KEYS = new Set(["Space", "ArrowDown"]);
 
-const CAP_FOR = { ShiftLeft: "KeyZ", ShiftRight: "Slash", ArrowDown: "Space" };
-function showKey(code, down) {
-  const cap = document.querySelector(`kbd[data-code="${CAP_FOR[code] ?? code}"]`);
-  if (cap) cap.classList.toggle("down", down);
+const SOUNDS = {
+  flipper: "sounds/flipper_press.wav",
+  launch: "sounds/ball_launch.wav",
+  bumper: "sounds/ball_hits_bumper.wav",
+  wall: "sounds/ball_hits_wall.wav",
+};
+const SOUND_GAP = 0.08;
+const audio = new AudioContext();
+const soundBuffers = {}, lastPlayed = {};
+for (const [name, src] of Object.entries(SOUNDS))
+  fetch(src).then(r => r.arrayBuffer()).then(data => audio.decodeAudioData(data))
+    .then(buffer => { soundBuffers[name] = buffer; });
+
+function playSound(name) {
+  if (!soundBuffers[name] || audio.currentTime - (lastPlayed[name] ?? -SOUND_GAP) < SOUND_GAP) return;
+  lastPlayed[name] = audio.currentTime;
+  const source = audio.createBufferSource();
+  source.buffer = soundBuffers[name];
+  source.connect(audio.destination);
+  source.start();
 }
+
+function startAudio() {
+  if (!help.open) audio.resume();
+}
+for (const type of ["keydown", "pointerdown"]) window.addEventListener(type, startAudio, true);
+
+const help = document.getElementById("help");
+function toggleHelp() {
+  if (help.open) help.close();
+  else { help.showModal(); audio.suspend(); }
+}
+help.addEventListener("close", startAudio);
+document.getElementById("helpBtn").addEventListener("click", toggleHelp);
 
 function onKey(e, down) {
   if (down) setTouchMode(false);
   if (e.repeat) return;
-  showKey(e.code, down);
-  if (e.code in FLIPPER_KEYS) setFlipper(FLIPPER_KEYS[e.code], down);
+  if (e.code === "KeyH" || (e.code === "Escape" && help.open)) { if (down) toggleHelp(); }
+  else if (down && help.open) return;
+  else if (e.code in FLIPPER_KEYS) setFlipper(FLIPPER_KEYS[e.code], down);
   else if (e.code in TILT_KEYS) setTilt(TILT_KEYS[e.code], down);
   else if (PLUNGER_KEYS.has(e.code)) setPlunger(down);
   else if (e.code === "KeyC") { if (down) toggleCamera(); }
@@ -95,6 +125,7 @@ setMirror();
 
 let zoom = 1;
 window.addEventListener("wheel", e => {
+  if (help.open) return;
   e.preventDefault();
   zoom = Math.min(4, Math.max(0.5, zoom * Math.exp(-e.deltaY * 0.002)));
 }, { passive: false });
@@ -108,7 +139,7 @@ canvas.addEventListener("dblclick", () => setCamera(cameraIndex));
 let screenInsets = { top: 0, bottom: 0 };
 
 function measureInsets() {
-  const rects = [...document.querySelectorAll("#hud, .setting, #controls, .pad, #touchLaunch")]
+  const rects = [...document.querySelectorAll("#hud, .setting, #helpBtn, .pad, #touchLaunch")]
     .map(el => el.getBoundingClientRect()).filter(r => r.height > 0);
   const h = window.innerHeight;
   const padsBeside = document.body.classList.contains("touch") && window.innerWidth > h;
@@ -138,13 +169,15 @@ newGame();
 updateHud();
 measureInsets();
 
-let last = performance.now();
+let last;
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 1 / 30);
   last = now;
-  stepPhysics(dt);
+  if (!help.open) stepPhysics(dt);
+  for (const name of game.sounds) playSound(name);
+  game.sounds.clear();
   render(screenInsets, CAMERAS[cameraIndex].ballCam, zoom, mirror);
   updateHud();
   requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
+requestAnimationFrame(now => { last = now; requestAnimationFrame(frame); });
