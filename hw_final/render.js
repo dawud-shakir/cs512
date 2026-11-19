@@ -129,6 +129,12 @@ vec3 environment(vec3 R) {
   return mix(horizon, playfield(R), smoothstep(0.0, 0.25, -h));
 }
 
+vec3 reflection(vec2 uv) {
+  vec2 h = 1.0 / vec2(textureSize(uReflection, 0));
+  return 0.25 * (texture(uReflection, uv + h).rgb + texture(uReflection, uv - h).rgb
+               + texture(uReflection, uv + vec2(h.x, -h.y)).rgb + texture(uReflection, uv - vec2(h.x, -h.y)).rgb);
+}
+
 void main() {
   if (dot(uClipPlane, vec4(vPosition, 1.0)) < 0.0) discard;
   vec3 N = normalize(vNormal);
@@ -154,7 +160,7 @@ void main() {
 
   result *= mix(1.0 - uShade, 1.0, shadow);
   float d = FOG_DENSITY * max(length(vPosition) - FOG_START, 0.0);
-  vec3 mirror = uMirror > 0.0 ? schlick(uMirror, N, V) * texture(uReflection, gl_FragCoord.xy / uScreenSize).rgb : vec3(0.0);
+  vec3 mirror = uMirror > 0.0 ? schlick(uMirror, N, V) * reflection(gl_FragCoord.xy / uScreenSize) : vec3(0.0);
   fragColor = vec4(mix(uFogColor, result, exp(-d * d)) + mirror, 1.0);
 }
 `;

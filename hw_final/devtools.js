@@ -14,7 +14,7 @@ const devTools = (() => {
   const style = document.createElement("style");
   style.textContent = `
     #devBtn {
-      position: fixed; top: calc(max(12px, env(safe-area-inset-top)) + 118px); right: 16px; z-index: 10;
+      position: fixed; top: calc(max(12px, env(safe-area-inset-top)) + 118px); right: 136px; z-index: 10;
       padding: 5px 14px; font: 600 13px system-ui, sans-serif; color: #9fe6ff; cursor: pointer;
       text-shadow: 0 0 6px #39c6ff; touch-action: manipulation;
       background: rgba(2, 10, 26, 0.85); border: 1px solid rgba(80, 200, 255, 0.6); border-radius: 20px;
