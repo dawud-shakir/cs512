@@ -83,7 +83,8 @@
       cursor: pointer;
     }
     button:active { transform: translate(3px, 3px); box-shadow: none; }
-    #devBtn { position: fixed; top: 16px; right: 24px; z-index: 10; margin: 0; }
+    #toolbar { position: fixed; top: 16px; right: 24px; z-index: 10; display: flex; gap: 12px; }
+    #toolbar button { margin: 0; }
     #devPanel {
       display: none;
       position: fixed;
@@ -99,6 +100,9 @@
     #devPanel .control-row { display: grid; grid-template-columns: 9em 1fr 3em; }
     #devPanel input[type="range"] { min-width: 0; }
     #devPanel .glass { padding-top: 10px; border-top: 3px solid #8c9ed1; }
+    .sky { display: flex; gap: 10px; }
+    .sky button { padding: 2px 16px; font-size: 20px; background: #fff; }
+    .sky button.active { background: #2961cc; }
     #devStats { margin: 0; padding-top: 8px; border-top: 3px solid #8c9ed1; font: 12px/1.4 "JetBrains Mono", monospace; white-space: pre; }
     select {
       margin-top: 6px;
@@ -141,7 +145,13 @@
     </div>
   </div>
 
-  <button id="devBtn">🛠 Dev (`)</button>
+  <div id="toolbar">
+    <div class="sky">
+      <button id="day" class="active">☀️</button>
+      <button id="night">🌙</button>
+    </div>
+    <button id="devBtn">🛠 Dev (`)</button>
+  </div>
   <div id="devPanel">
     <div class="controls">
       <div class="control-row">
@@ -176,8 +186,8 @@
       </div>
       <div class="control-row">
         <label for="fadeLength">Floor Fade Length:</label>
-        <input type="range" id="fadeLength" min="1" max="200" value="50">
-        <span id="fadeLengthValue">50</span>
+        <input type="range" id="fadeLength" min="1" max="200" value="75">
+        <span id="fadeLengthValue">75</span>
       </div>
       <div class="control-row">
         <label for="horizon">Horizon Band:</label>
@@ -186,13 +196,13 @@
       </div>
       <div class="control-row">
         <label for="fogStart">Fog Start:</label>
-        <input type="range" id="fogStart" min="0" max="100" value="22">
-        <span id="fogStartValue">22</span>
+        <input type="range" id="fogStart" min="0" max="100" value="0">
+        <span id="fogStartValue">0</span>
       </div>
       <div class="control-row">
         <label for="fogDensity">Fog Density:</label>
-        <input type="range" id="fogDensity" min="0" max="0.1" step="0.001" value="0.02">
-        <span id="fogDensityValue">0.02</span>
+        <input type="range" id="fogDensity" min="0" max="0.1" step="0.001" value="0">
+        <span id="fogDensityValue">0</span>
       </div>
     </div>
 
@@ -241,6 +251,7 @@ uniform float u_fluffiness;
 uniform float u_fadeStart;
 uniform float u_fadeLength;
 uniform float u_horizon;
+uniform float u_night;
 uniform float u_fogStart;
 uniform float u_fogDensity;
 uniform mat4 u_cameraLookat;
@@ -586,6 +597,15 @@ float clouds(vec2 uv) {
     return 0.5 * noise(uv) + 0.25 * noise(uv * 2.0) + 0.125 * noise(uv * 4.0);
 }
 
+float stars(vec3 d) {
+    vec3 p = d * 150.0;
+    vec3 cell = floor(p);
+    float h = fract(sin(dot(cell, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+    float r = length(p - cell - 0.5);
+    float twinkle = 0.7 + 0.3 * sin(u_time * 3.0 + h * 100.0);
+    return step(0.985, h) * step(0.0, d.y) * smoothstep(0.3, 0.0, r) * twinkle;
+}
+
 vec3 sky(vec3 d) {
     vec3 color = vec3(0.16, 0.38, 0.80);
     if (d.y < 0.45) color = vec3(0.26, 0.53, 0.90);
@@ -611,13 +631,13 @@ vec3 sky(vec3 d) {
 
     float s = max(dot(d, SUN_DIR), 0.0);
     color += vec3(1.0, 0.9, 0.7) * (8.0 * step(0.9985, s) + 0.5 * step(0.995, s));
-    return color;
+    return mix(color, vec3(stars(d)), u_night);
 }
 
 void addFog(float t, inout vec3 color, inout vec3 attenuation) {
     float d = u_fogDensity * max(t - u_fogStart, 0.0);
     float fog = 1.0 - exp(-d * d);
-    color += attenuation * fog * pow(HORIZON_COLOR, vec3(2.2));
+    color += attenuation * fog * pow(HORIZON_COLOR, vec3(2.2)) * (1.0 - u_night);
     attenuation *= 1.0 - fog;
 }
 
@@ -637,7 +657,7 @@ bool shadeSurface(HitData hit, inout Ray ray, inout vec3 color, inout vec3 atten
     vec3 lightDir = toLight / lightDist;
 
     HitData sunBlocker = traceScene(Ray(hit.point + hit.normal * 0.0001, SUN_DIR), false);
-    float sunVisible = sunBlocker.hit ? 0.0 : 1.0;
+    float sunVisible = (sunBlocker.hit ? 0.0 : 1.0) * (1.0 - u_night);
     float sunDiff = max(dot(hit.normal, SUN_DIR), 0.0);
 
     HitData blocker = traceScene(Ray(hit.point + hit.normal * 0.001, lightDir), false);
@@ -1055,6 +1075,18 @@ function parseMTL(text) {
   const fogDensity = document.getElementById("fogDensity");
   const ior = document.getElementById("ior");
   const motion = document.getElementById("motion");
+  const day = document.getElementById("day");
+  const night = document.getElementById("night");
+  let nightness = 0, nightTarget = 0;
+  let dayAmbient = Number(ambient.value);
+  const setNight = on => {
+    if (on && nightness === 0) dayAmbient = Number(ambient.value);
+    nightTarget = on ? 1 : 0;
+    day.classList.toggle("active", !on);
+    night.classList.toggle("active", on);
+  };
+  day.addEventListener("click", () => { setNight(false); day.blur(); });
+  night.addEventListener("click", () => { setNight(true); night.blur(); });
   let paused = false;
   let sceneTime = 0;
   let lastTime = 0;
@@ -1144,6 +1176,14 @@ function cross(a, b) {
   function render(time) {
     requestAnimationFrame(render);
     if (!paused) sceneTime += time - lastTime;
+    const fade = (time - lastTime) / 1500;
+    const previous = nightness;
+    nightness = nightTarget > nightness ? Math.min(nightTarget, nightness + fade) : Math.max(nightTarget, nightness - fade);
+    const nightFade = nightness * nightness * (3 - 2 * nightness);
+    if (nightness !== previous) {
+      ambient.value = dayAmbient * (1 - nightFade);
+      document.getElementById("ambientValue").textContent = ambient.value;
+    }
     if (devPanel.classList.contains("open") && time > lastTime) fps = fps * 0.9 + 1000 / (time - lastTime) * 0.1;
     lastTime = time;
     if (!program) return;
@@ -1191,6 +1231,7 @@ function cross(a, b) {
     gl.uniform1f(uniform("u_fadeStart"), fadeStart.value);
     gl.uniform1f(uniform("u_fadeLength"), fadeLength.value);
     gl.uniform1f(uniform("u_horizon"), horizon.value);
+    gl.uniform1f(uniform("u_night"), nightFade);
     gl.uniform1f(uniform("u_fogStart"), fogStart.value);
     gl.uniform1f(uniform("u_fogDensity"), fogDensity.value);
     gl.uniformMatrix4fv(uniform("u_cameraLookat"), false, lookAt(eye, target, up));
