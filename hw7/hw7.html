@@ -66,6 +66,7 @@
     #shaderError { color: #d64545; font: 13px "JetBrains Mono", monospace; white-space: pre-wrap; width: 400px; margin: 0; }
     .controls { display: flex; flex-direction: column; gap: 6px; }
     .glass .controls { margin-top: 10px; }
+    .glass .speed { margin-top: 12px; padding-top: 10px; border-top: 3px solid #8c9ed1; }
     .control-row { display: flex; align-items: center; gap: 10px; }
     .control-row span { font-weight: 700; }
     .control-row:has(input:disabled) { color: #8c9ed1; }
@@ -103,7 +104,7 @@
     .sky { display: flex; gap: 10px; }
     .sky button { padding: 2px 16px; font-size: 20px; background: #fff; }
     .sky button.active { background: #2961cc; }
-    #devStats { margin: 0; padding-top: 8px; border-top: 3px solid #8c9ed1; font: 12px/1.4 "JetBrains Mono", monospace; white-space: pre; }
+    #devStats { margin: 0; padding-top: 8px; font: 12px/1.4 "JetBrains Mono", monospace; white-space: pre; }
     select {
       margin-top: 6px;
       padding: 4px 8px;
@@ -148,6 +149,8 @@
   <div id="toolbar">
     <div class="sky">
       <button id="day" class="active">☀️</button>
+      <button id="cloudy">☁️</button>
+      <button id="storm">⛈️</button>
       <button id="night">🌙</button>
     </div>
     <button id="devBtn">🛠 Dev (`)</button>
@@ -222,11 +225,17 @@
         </div>
         <div class="control-row">
           <label for="samples">Samples:</label>
-          <input type="range" id="samples" min="1" max="64" value="16">
-          <span id="samplesValue">16</span>
+          <input type="range" id="samples" min="1" max="64" value="4">
+          <span id="samplesValue">4</span>
         </div>
       </div>
-      <button id="motion">Pause</button>
+      <div class="controls speed">
+        <div class="control-row">
+          <label for="speed">Scene Speed:</label>
+          <input type="range" id="speed" min="0" max="3" step="0.05" value="1">
+          <span id="speedValue">1</span>
+        </div>
+      </div>
     </div>
     <pre id="devStats"></pre>
   </div>
@@ -252,6 +261,9 @@ uniform float u_fadeStart;
 uniform float u_fadeLength;
 uniform float u_horizon;
 uniform float u_night;
+uniform float u_cloudy;
+uniform float u_storm;
+uniform float u_flash;
 uniform float u_fogStart;
 uniform float u_fogDensity;
 uniform mat4 u_cameraLookat;
@@ -270,6 +282,9 @@ const vec3 SUN_DIR = vec3(0.784, 0.588, 0.196);
 const vec3 HORIZON_COLOR = vec3(0.70, 0.85, 0.98);
 
 const float SUN_POWER = 2.0;
+const float FLASH_POWER = 1.5;
+const float NEAR = 0.1;
+const float FAR = 1000.0;
 const int MAX_BOUNCES = 8;
 const vec3 WINDOW_BOX = vec3(1.0, 1.3, 0.1);
 const vec2 PORTAL_HALF = vec2(0.88, 1.18);
@@ -525,7 +540,7 @@ HitData traceScene(Ray ray, bool includeLight) {
 
     if (intersectFloor(ray, t) && t < hit.t) {
         vec3 p = ray.origin + ray.direction * t;
-        hit = HitData(true, t, p, vec3(0.0, 1.0, 0.0), checker(p.xz, t), lightFloor.reflectivity, false, false, 1.0);
+        hit = HitData(true, t, p, vec3(0.0, 1.0, 0.0), checker(p.xz, t), lightFloor.reflectivity * (1.0 - u_storm), false, false, 1.0);
     }
 
     if (intersectCube(ray, t, n)) {
@@ -611,10 +626,12 @@ vec3 sky(vec3 d) {
     if (d.y < 0.45) color = vec3(0.26, 0.53, 0.90);
     if (d.y < 0.2) color = vec3(0.45, 0.70, 0.96);
     if (d.y < u_horizon) color = HORIZON_COLOR;
+    color = mix(color, vec3(0.78, 0.80, 0.83), u_cloudy);
+    color = mix(color, vec3(0.20, 0.22, 0.27), u_storm);
 
     if (d.y > u_horizon) {
         vec2 uv = d.xz / (d.y + 0.3) * 3.0;
-        float edge = mix(0.55, 1.0 - u_fluffiness, smoothstep(u_horizon, 0.3, d.y));
+        float edge = mix(0.55, 1.0 - u_fluffiness, smoothstep(u_horizon, 0.3, d.y)) - 0.25 * u_cloudy;
         float n = clouds(uv);
         vec2 grad = vec2(clouds(uv + vec2(0.01, 0.0)) - n, clouds(uv + vec2(0.0, 0.01)) - n) / 0.01;
         float outline = step(abs(n - edge) / max(length(grad), 0.0001), u_outline);
@@ -623,6 +640,8 @@ vec3 sky(vec3 d) {
         vec2 toSun = sunUV - uv;
         float lit = step(edge, clouds(uv - toSun / max(length(toSun), 0.0001) * 0.25));
         vec3 cloud = mix(vec3(0.55, 0.62, 0.82), vec3(1.0), lit);
+        cloud = mix(cloud, mix(vec3(0.62, 0.64, 0.69), vec3(0.95, 0.95, 0.96), lit), u_cloudy);
+        cloud = mix(cloud, mix(vec3(0.24, 0.25, 0.30), vec3(0.38, 0.40, 0.45), lit), u_storm);
         color = mix(color, cloud, body);
         color = mix(color, vec3(0.10, 0.16, 0.38), outline);
     }
@@ -630,7 +649,8 @@ vec3 sky(vec3 d) {
     color = pow(color, vec3(2.2));
 
     float s = max(dot(d, SUN_DIR), 0.0);
-    color += vec3(1.0, 0.9, 0.7) * (8.0 * step(0.9985, s) + 0.5 * step(0.995, s));
+    color += vec3(1.0, 0.9, 0.7) * (8.0 * step(0.9985, s) + 0.5 * step(0.995, s)) * (1.0 - u_cloudy);
+    color += u_flash * 0.5 * vec3(0.75, 0.8, 1.0);
     return mix(color, vec3(stars(d)), u_night);
 }
 
@@ -657,7 +677,7 @@ bool shadeSurface(HitData hit, inout Ray ray, inout vec3 color, inout vec3 atten
     vec3 lightDir = toLight / lightDist;
 
     HitData sunBlocker = traceScene(Ray(hit.point + hit.normal * 0.0001, SUN_DIR), false);
-    float sunVisible = (sunBlocker.hit ? 0.0 : 1.0) * (1.0 - u_night);
+    float sunVisible = (sunBlocker.hit ? 0.0 : 1.0) * (1.0 - u_night) * (1.0 - 0.85 * u_cloudy);
     float sunDiff = max(dot(hit.normal, SUN_DIR), 0.0);
 
     HitData blocker = traceScene(Ray(hit.point + hit.normal * 0.001, lightDir), false);
@@ -670,7 +690,7 @@ bool shadeSurface(HitData hit, inout Ray ray, inout vec3 color, inout vec3 atten
     float sunSpec = sunDiff > 0.0 ? pow(max(dot(reflect(-SUN_DIR, hit.normal), V), 0.0), u_shininess) : 0.0;
 
     //  (optional) Ambient fill light approximates indirect light we don't trace.
-    vec3 shading = hit.color * (LIGHT_POWER * diff * falloff * visible + SUN_POWER * sunDiff * sunVisible + u_ambientStrength);
+    vec3 shading = hit.color * (LIGHT_POWER * diff * falloff * visible + SUN_POWER * sunDiff * sunVisible + u_ambientStrength + FLASH_POWER * u_flash);
     shading += lightSphere.color * LIGHT_POWER * spec * falloff * visible + vec3(SUN_POWER * sunSpec * sunVisible);
     color += attenuation * shading * (1.0 - hit.reflectivity);
 
@@ -807,7 +827,74 @@ void main() {
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;
     Ray ray = Ray(eye, camera * normalize(vec3(uv, -1.5)));
 
+    gl_FragDepth = 1.0;
+    if (u_storm > 0.0) {
+        HitData first = traceScene(ray, true);
+        float z = first.t * 1.5 / length(vec3(uv, -1.5));
+        if (first.hit) gl_FragDepth = clamp(0.5 + 0.5 * ((FAR + NEAR) / (FAR - NEAR) - 2.0 * FAR * NEAR / ((FAR - NEAR) * z)), 0.0, 1.0);
+    }
+
     fragColor = vec4(pow(trace(ray), vec3(1.0 / 2.2)), 1.0);  // gamma correction
+}
+</script>
+
+<script id="rain-vertex-shader" type="x-shader/x-vertex">#version 300 es
+uniform float u_time;
+uniform vec2 u_resolution;
+uniform mat4 u_cameraLookat;
+out float v_opacity;
+
+const float NEAR = 0.1;
+const float FAR = 1000.0;
+const vec3 RAIN_MIN = vec3(-20.0, -2.0, -28.0);
+const vec3 RAIN_SIZE = vec3(48.0, 20.0, 48.0);
+const float FALL_SPEED = 14.0;
+const vec3 WIND = vec3(1.5, 0.0, 0.5);
+const vec3 GRAVITY = vec3(0.0, -9.8, 0.0);
+const float RESTITUTION = 0.15;
+const float STREAK = 0.04;
+
+float hash(float n) {
+    return fract(sin(n) * 43758.5453);
+}
+
+vec3 dropPosition(vec3 spawn, vec3 velocity, vec3 bounce, float fall, float t) {
+    if (t < fall) return spawn + velocity * t;
+    float s = t - fall;
+    return spawn + velocity * fall + bounce * s + 0.5 * GRAVITY * s * s;
+}
+
+void main() {
+    float id = float(gl_VertexID / 2);
+    vec3 velocity = WIND - vec3(0.0, FALL_SPEED * mix(0.85, 1.15, hash(id + 0.3)), 0.0);
+    float fall = RAIN_SIZE.y / -velocity.y;
+    float hop = 2.0 * RESTITUTION * -velocity.y / -GRAVITY.y;
+    float lifespan = fall + hop;
+    float clock = u_time + hash(id + 0.5) * lifespan;
+    float age = mod(clock, lifespan);
+    float seed = id + floor(clock / lifespan) * 17.0;
+
+    vec3 spawn = RAIN_MIN + RAIN_SIZE * vec3(hash(seed + 0.1), 1.0, hash(seed + 0.2));
+    vec3 bounce = vec3(velocity.x + 2.0 * (hash(seed + 0.7) - 0.5), -RESTITUTION * velocity.y, velocity.z + 2.0 * (hash(seed + 0.9) - 0.5));
+    float t = gl_VertexID % 2 == 0 ? age : max(age - STREAK, 0.0);
+    vec3 position = dropPosition(spawn, velocity, bounce, fall, t);
+
+    v_opacity = age < fall ? 0.35 * smoothstep(0.0, 0.1, age / fall) : 0.6 * (1.0 - (age - fall) / hop);
+
+    vec3 e = transpose(mat3(u_cameraLookat)) * (position - u_cameraLookat[3].xyz);
+    gl_Position = vec4(3.0 * e.x * u_resolution.y / u_resolution.x, 3.0 * e.y, -(FAR + NEAR) / (FAR - NEAR) * e.z - 2.0 * FAR * NEAR / (FAR - NEAR), -e.z);
+}
+</script>
+
+<script id="rain-fragment-shader" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+uniform float u_flash;
+in float v_opacity;
+out vec4 fragColor;
+
+void main() {
+    vec3 color = vec3(0.70, 0.75, 0.85) * (1.0 + 2.0 * u_flash);
+    fragColor = vec4(color * v_opacity, v_opacity);
 }
 </script>
 
@@ -987,6 +1074,12 @@ function parseMTL(text) {
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   gl.enableVertexAttribArray(0);
 
+  const RAIN_COUNT = 10000;
+  const rainProgram = createProgram(document.getElementById("rain-vertex-shader").textContent, document.getElementById("rain-fragment-shader").textContent);
+  const rainVao = gl.createVertexArray();
+  gl.depthFunc(gl.LEQUAL);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
   const armTexture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, armTexture);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
@@ -1074,26 +1167,29 @@ function parseMTL(text) {
   const fogStart = document.getElementById("fogStart");
   const fogDensity = document.getElementById("fogDensity");
   const ior = document.getElementById("ior");
-  const motion = document.getElementById("motion");
-  const day = document.getElementById("day");
-  const night = document.getElementById("night");
-  let nightness = 0, nightTarget = 0;
-  let dayAmbient = Number(ambient.value);
-  const setNight = on => {
-    if (on && nightness === 0) dayAmbient = Number(ambient.value);
-    nightTarget = on ? 1 : 0;
-    day.classList.toggle("active", !on);
-    night.classList.toggle("active", on);
+  const speed = document.getElementById("speed");
+  const MODES = {
+    day: { night: 0, cloudy: 0, storm: 0 },
+    cloudy: { night: 0, cloudy: 1, storm: 0 },
+    storm: { night: 0, cloudy: 1, storm: 1 },
+    night: { night: 1, cloudy: 0, storm: 0 },
   };
-  day.addEventListener("click", () => { setNight(false); day.blur(); });
-  night.addEventListener("click", () => { setNight(true); night.blur(); });
-  let paused = false;
+  const weather = { ...MODES.day };
+  let mode = MODES.day;
+  let ambientFactor = 1;
+  let dayAmbient = Number(ambient.value);
+  for (const name in MODES) {
+    const button = document.getElementById(name);
+    button.addEventListener("click", () => {
+      if (ambientFactor === 1) dayAmbient = Number(ambient.value);
+      mode = MODES[name];
+      for (const other in MODES) document.getElementById(other).classList.toggle("active", other === name);
+      button.blur();
+    });
+  }
+  let strikeTime = -Infinity, nextStrike = 0;
   let sceneTime = 0;
   let lastTime = 0;
-  motion.addEventListener("click", () => {
-    paused = !paused;
-    motion.textContent = paused ? "Play" : "Pause";
-  });
   const devBtn = document.getElementById("devBtn");
   const devPanel = document.getElementById("devPanel");
   const devStats = document.getElementById("devStats");
@@ -1103,7 +1199,7 @@ function parseMTL(text) {
     devBtn.blur();
   };
   devBtn.addEventListener("click", toggleDev);
-  for (const slider of [bounces, ambient, shininess, samples, outline, fluffiness, fadeStart, fadeLength, horizon, fogStart, fogDensity, ior]) {
+  for (const slider of [bounces, ambient, shininess, samples, outline, fluffiness, fadeStart, fadeLength, horizon, fogStart, fogDensity, speed, ior]) {
     slider.addEventListener("input", () => document.getElementById(slider.id + "Value").textContent = slider.value);
     slider.addEventListener("change", () => slider.blur());
   }
@@ -1175,15 +1271,25 @@ function cross(a, b) {
 
   function render(time) {
     requestAnimationFrame(render);
-    if (!paused) sceneTime += time - lastTime;
+    sceneTime += (time - lastTime) * speed.value;
     const fade = (time - lastTime) / 1500;
-    const previous = nightness;
-    nightness = nightTarget > nightness ? Math.min(nightTarget, nightness + fade) : Math.max(nightTarget, nightness - fade);
-    const nightFade = nightness * nightness * (3 - 2 * nightness);
-    if (nightness !== previous) {
-      ambient.value = dayAmbient * (1 - nightFade);
+    for (const key in weather) {
+      weather[key] = mode[key] > weather[key] ? Math.min(mode[key], weather[key] + fade) : Math.max(mode[key], weather[key] - fade);
+    }
+    const smooth = x => x * x * (3 - 2 * x);
+    const nightFade = smooth(weather.night), cloudy = smooth(weather.cloudy), storm = smooth(weather.storm);
+    const factor = (1 - nightFade) * (1 - 0.6 * storm);
+    if (factor !== ambientFactor) {
+      ambientFactor = factor;
+      ambient.value = dayAmbient * factor;
       document.getElementById("ambientValue").textContent = ambient.value;
     }
+    if (weather.storm === 1 && sceneTime > nextStrike) {
+      strikeTime = sceneTime;
+      nextStrike = sceneTime + 3000 + Math.random() * 5000;
+    }
+    const since = sceneTime - strikeTime;
+    const flash = storm * (Math.exp(-since / 60) + (since > 150 ? 0.8 * Math.exp(-(since - 150) / 100) : 0));
     if (devPanel.classList.contains("open") && time > lastTime) fps = fps * 0.9 + 1000 / (time - lastTime) * 0.1;
     lastTime = time;
     if (!program) return;
@@ -1205,12 +1311,16 @@ function cross(a, b) {
     const up = [-sp * sy, cp, -sp * cy];
 
     if (devPanel.classList.contains("open")) {
-      devStats.textContent = `FPS ${fps.toFixed(0).padStart(3)}   ${paused ? "PAUSED" : "running"}\n` +
+      devStats.textContent = `FPS ${fps.toFixed(0).padStart(3)}\n` +
         `Cam  y:${yaw.toFixed(2)} p:${pitch.toFixed(2)} d:${distance.toFixed(2)}\n` +
         `Look (${target.map(c => c.toFixed(2)).join(", ")})`;
     }
 
 
+    const rainCount = Math.round(RAIN_COUNT * storm);
+    if (rainCount > 0) gl.enable(gl.DEPTH_TEST);
+    else gl.disable(gl.DEPTH_TEST);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
     gl.useProgram(program);
     gl.bindVertexArray(quadVao);
     gl.activeTexture(gl.TEXTURE0);
@@ -1232,6 +1342,9 @@ function cross(a, b) {
     gl.uniform1f(uniform("u_fadeLength"), fadeLength.value);
     gl.uniform1f(uniform("u_horizon"), horizon.value);
     gl.uniform1f(uniform("u_night"), nightFade);
+    gl.uniform1f(uniform("u_cloudy"), cloudy);
+    gl.uniform1f(uniform("u_storm"), storm);
+    gl.uniform1f(uniform("u_flash"), flash);
     gl.uniform1f(uniform("u_fogStart"), fogStart.value);
     gl.uniform1f(uniform("u_fogDensity"), fogDensity.value);
     gl.uniformMatrix4fv(uniform("u_cameraLookat"), false, lookAt(eye, target, up));
@@ -1245,6 +1358,20 @@ function cross(a, b) {
     gl.uniform1i(uniform("u_samples"), samples.value);
     gl.uniform1f(uniform("u_ior"), ior.value);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    if (rainCount === 0) return;
+    const rainUniform = name => gl.getUniformLocation(rainProgram, name);
+    gl.useProgram(rainProgram);
+    gl.bindVertexArray(rainVao);
+    gl.uniform1f(rainUniform("u_time"), sceneTime / 1000);
+    gl.uniform2f(rainUniform("u_resolution"), canvas.width, canvas.height);
+    gl.uniformMatrix4fv(rainUniform("u_cameraLookat"), false, lookAt(eye, target, up));
+    gl.uniform1f(rainUniform("u_flash"), flash);
+    gl.depthMask(false);
+    gl.enable(gl.BLEND);
+    gl.drawArrays(gl.LINES, 0, 2 * rainCount);
+    gl.disable(gl.BLEND);
+    gl.depthMask(true);
   }
   requestAnimationFrame(render);
 </script>
