@@ -199,7 +199,7 @@
       </div>
       <div class="control-row">
         <label for="fogStart">Fog Start:</label>
-        <input type="range" id="fogStart" min="0" max="100" value="0">
+        <input type="range" id="fogStart" min="0" max="200" value="0">
         <span id="fogStartValue">0</span>
       </div>
       <div class="control-row">
@@ -280,9 +280,12 @@ const float FLOOR_Y = -2.0;
 const float CHECKER_SIZE = 1.0;
 const vec3 SUN_DIR = vec3(0.784, 0.588, 0.196);
 const vec3 HORIZON_COLOR = vec3(0.70, 0.85, 0.98);
+const vec3 OVERCAST_COLOR = vec3(0.78, 0.80, 0.83);
+const vec3 STORM_COLOR = vec3(0.20, 0.22, 0.27);
 
 const float SUN_POWER = 2.0;
 const float FLASH_POWER = 1.5;
+const float GLASS_SHADOW = 0.8;
 const float NEAR = 0.1;
 const float FAR = 1000.0;
 const int MAX_BOUNCES = 8;
@@ -320,7 +323,7 @@ struct Cube {
 struct Floor {
     vec3 color_even;
     vec3 color_odd;
-    float reflectivity;
+    float ior;
 };
 
 struct HitData {
@@ -342,7 +345,7 @@ Sphere metalSphere;
 Cube cube;
 mat3 windowRotation;
 
-const Floor lightFloor = Floor(vec3(1.0, 2.0, 1.0), vec3(0.05, 0.05, 0.05), 0.6);
+const Floor lightFloor = Floor(vec3(1.0, 1.0, 1.0), vec3(0.05, 0.05, 0.05), 1.5);
 
 void initScene(float time) {
     float a = time * 0.5;
@@ -425,7 +428,7 @@ bool intersectArm(Ray ray, out float t, out vec3 normal, out vec3 color) {
     return found;
 }
 
-bool intersectWindow(Ray ray, bool includeGlass, out float t, out vec3 normal, out vec3 color, out bool glass) {
+bool intersectWindow(Ray ray, out float t, out vec3 normal, out vec3 color, out bool glass) {
     vec3 o = (ray.origin - u_windowCenter) * windowRotation;
     vec3 d = ray.direction * windowRotation;
     vec3 t0s = (-WINDOW_BOX - o) / d;
@@ -456,7 +459,6 @@ bool intersectWindow(Ray ray, bool includeGlass, out float t, out vec3 normal, o
         if (u < 0.0 || v < 0.0 || u + v > 1.0 || tt < 0.001 || tt > t) continue;
 
         vec4 material = texelFetch(u_windowTriangles, ivec2(3, i), 0);
-        if (!includeGlass && material.a > 0.5) continue;
 
         t = tt;
         normal = windowRotation * normalize(cross(e1, e2));
@@ -527,24 +529,24 @@ vec3 checker(vec2 q, float t) {
     return mix(color, 0.5 * (min(lightFloor.color_even, 1.0) + lightFloor.color_odd), smoothstep(u_fadeStart, u_fadeStart + u_fadeLength, t));
 }
 
-HitData traceScene(Ray ray, bool includeLight) {
+HitData traceScene(Ray ray) {
     HitData hit;
     hit.hit = false;
     hit.t = 1e10;
     float t;
     vec3 n;
 
-    if (includeLight && intersectSphere(ray, lightSphere, t) && t < hit.t) {
-        hit = HitData(true, t, ray.origin + ray.direction * t, vec3(0.0), lightSphere.color * LIGHT_POWER, 0.0, true, false, 1.0);
+    if (u_night > 0.0 && intersectSphere(ray, lightSphere, t) && t < hit.t) {
+        hit = HitData(true, t, ray.origin + ray.direction * t, vec3(0.0), lightSphere.color * LIGHT_POWER * u_night, 0.0, true, false, 1.0);
     }
 
     if (intersectFloor(ray, t) && t < hit.t) {
         vec3 p = ray.origin + ray.direction * t;
-        hit = HitData(true, t, p, vec3(0.0, 1.0, 0.0), checker(p.xz, t), lightFloor.reflectivity * (1.0 - u_storm), false, false, 1.0);
+        hit = HitData(true, t, p, vec3(0.0, 1.0, 0.0), checker(p.xz, t), schlick(-ray.direction.y, lightFloor.ior) * (1.0 - u_storm), false, false, 1.0);
     }
 
     if (intersectCube(ray, t, n)) {
-        if (includeLight && t < hit.t) {
+        if (t < hit.t) {
             hit = HitData(true, t, ray.origin + ray.direction * t, n, cube.color, cube.reflectivity, false, true, u_ior);
         }
         vec3 color;
@@ -570,7 +572,7 @@ HitData traceScene(Ray ray, bool includeLight) {
 
     vec3 windowColor;
     bool windowGlass;
-    if (intersectWindow(ray, includeLight, t, n, windowColor, windowGlass) && t < hit.t) {
+    if (intersectWindow(ray, t, n, windowColor, windowGlass) && t < hit.t) {
         hit = HitData(true, t, ray.origin + ray.direction * t, n, windowColor, 0.0, false, windowGlass, u_ior);
     }
 
@@ -626,8 +628,8 @@ vec3 sky(vec3 d) {
     if (d.y < 0.45) color = vec3(0.26, 0.53, 0.90);
     if (d.y < 0.2) color = vec3(0.45, 0.70, 0.96);
     if (d.y < u_horizon) color = HORIZON_COLOR;
-    color = mix(color, vec3(0.78, 0.80, 0.83), u_cloudy);
-    color = mix(color, vec3(0.20, 0.22, 0.27), u_storm);
+    color = mix(color, OVERCAST_COLOR, u_cloudy);
+    color = mix(color, STORM_COLOR, u_storm);
 
     if (d.y > u_horizon) {
         vec2 uv = d.xz / (d.y + 0.3) * 3.0;
@@ -643,7 +645,8 @@ vec3 sky(vec3 d) {
         cloud = mix(cloud, mix(vec3(0.62, 0.64, 0.69), vec3(0.95, 0.95, 0.96), lit), u_cloudy);
         cloud = mix(cloud, mix(vec3(0.24, 0.25, 0.30), vec3(0.38, 0.40, 0.45), lit), u_storm);
         color = mix(color, cloud, body);
-        color = mix(color, vec3(0.10, 0.16, 0.38), outline);
+        vec3 outlineColor = mix(mix(vec3(0.10, 0.16, 0.38), vec3(0.40, 0.42, 0.47), u_cloudy), vec3(0.10, 0.11, 0.14), u_storm);
+        color = mix(color, outlineColor, outline);
     }
 
     color = pow(color, vec3(2.2));
@@ -657,8 +660,23 @@ vec3 sky(vec3 d) {
 void addFog(float t, inout vec3 color, inout vec3 attenuation) {
     float d = u_fogDensity * max(t - u_fogStart, 0.0);
     float fog = 1.0 - exp(-d * d);
-    color += attenuation * fog * pow(HORIZON_COLOR, vec3(2.2)) * (1.0 - u_night);
+    vec3 fogColor = mix(mix(HORIZON_COLOR, OVERCAST_COLOR, u_cloudy), STORM_COLOR, u_storm);
+    color += attenuation * fog * pow(fogColor, vec3(2.2)) * (1.0 - u_night);
     attenuation *= 1.0 - fog;
+}
+
+float shadow(vec3 origin, vec3 direction, float maxT) {
+    float light = 1.0;
+    Ray ray = Ray(origin, direction);
+    for (int i = 0; i < 4; i++) {
+        HitData blocker = traceScene(ray);
+        if (!blocker.hit || blocker.isLight || blocker.t > maxT) return light;
+        if (!blocker.isGlass) return 0.0;
+        light *= GLASS_SHADOW;
+        ray.origin = blocker.point + direction * 0.001;
+        maxT -= blocker.t;
+    }
+    return light;
 }
 
 bool shadeSurface(HitData hit, inout Ray ray, inout vec3 color, inout vec3 attenuation) {
@@ -676,12 +694,10 @@ bool shadeSurface(HitData hit, inout Ray ray, inout vec3 color, inout vec3 atten
     float lightDist = length(toLight);
     vec3 lightDir = toLight / lightDist;
 
-    HitData sunBlocker = traceScene(Ray(hit.point + hit.normal * 0.0001, SUN_DIR), false);
-    float sunVisible = (sunBlocker.hit ? 0.0 : 1.0) * (1.0 - u_night) * (1.0 - 0.85 * u_cloudy);
+    float sunVisible = shadow(hit.point + hit.normal * 0.0001, SUN_DIR, 1e10) * (1.0 - u_night) * (1.0 - 0.85 * u_cloudy);
     float sunDiff = max(dot(hit.normal, SUN_DIR), 0.0);
 
-    HitData blocker = traceScene(Ray(hit.point + hit.normal * 0.001, lightDir), false);
-    float visible = blocker.hit && blocker.t < lightDist ? 0.0 : 1.0;
+    float visible = shadow(hit.point + hit.normal * 0.001, lightDir, lightDist) * u_night;
     float diff = max(dot(hit.normal, lightDir), 0.0);
     float falloff = 1.0 / (1.0 + 0.1 * lightDist * lightDist);
 
@@ -711,7 +727,7 @@ vec3 traceSingle(Ray ray, int maxBounces, bool stochastic, inout float seed) {
 
     //use loop to simulate the recursive process as GLSL doesn't support recursions
     for (int bounce = 0; bounce < maxBounces; bounce++) {
-        HitData hit = traceScene(ray, true);
+        HitData hit = traceScene(ray);
         if (hit.hit) addFog(hit.t, color, attenuation);
 
         if (hit.hit && hit.isGlass) {
@@ -735,7 +751,7 @@ vec3 traceBlend(Ray ray, inout float seed) {
     vec3 attenuation = vec3(1.0);
 
     for (int bounce = 0; bounce < u_maxBounces; bounce++) {
-        HitData hit = traceScene(ray, true);
+        HitData hit = traceScene(ray);
         if (hit.hit) addFog(hit.t, color, attenuation);
 
         if (hit.hit && hit.isGlass) {
@@ -773,7 +789,7 @@ vec3 traceTree(Ray ray) {
         vec3 attenuation = stackAttenuation[stackSize];
 
         for (int bounce = stackBounce[stackSize]; bounce < u_maxBounces; bounce++) {
-            HitData hit = traceScene(ray, true);
+            HitData hit = traceScene(ray);
             if (hit.hit) addFog(hit.t, color, attenuation);
 
             if (hit.hit && hit.isGlass) {
@@ -829,7 +845,7 @@ void main() {
 
     gl_FragDepth = 1.0;
     if (u_storm > 0.0) {
-        HitData first = traceScene(ray, true);
+        HitData first = traceScene(ray);
         float z = first.t * 1.5 / length(vec3(uv, -1.5));
         if (first.hit) gl_FragDepth = clamp(0.5 + 0.5 * ((FAR + NEAR) / (FAR - NEAR) - 2.0 * FAR * NEAR / ((FAR - NEAR) * z)), 0.0, 1.0);
     }
