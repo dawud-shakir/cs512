@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <title>Ray Tracing</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Fredoka:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap">
   <style>
     body {
       margin: 0;
@@ -17,8 +17,7 @@
     }
     h2 {
       margin: 0 0 14px;
-      font-size: 36px;
-      font-weight: 700;
+      font: 400 36px "Bungee", sans-serif;
       color: #fff;
       -webkit-text-stroke: 7px #1a2961;
       paint-order: stroke fill;
@@ -45,9 +44,10 @@
     }
     .layout { display: flex; gap: 18px; align-items: flex-start; }
     .main { display: flex; flex-direction: column; gap: 18px; min-width: 0; flex: 1; }
-    .stage { display: flex; gap: 18px; align-items: flex-start; }
+    .stage { display: flex; gap: 18px; }
     .view { flex: 1; min-width: 0; }
     .editors { display: flex; flex-direction: column; gap: 18px; }
+    .editors > div:has(#fragEditor) { flex: 1 1 0; display: flex; flex-direction: column; }
     textarea {
       display: block;
       background: #1a2961;
@@ -62,7 +62,8 @@
       box-sizing: border-box;
       white-space: pre;
     }
-    #fragEditor { height: 658px; }
+    #fragEditor { flex: 1 1 0; min-height: 100px; }
+    #shaderError:empty { display: none; }
     #shaderError { color: #d64545; font: 13px "JetBrains Mono", monospace; white-space: pre-wrap; width: 400px; margin: 0; }
     .controls { display: flex; flex-direction: column; gap: 6px; }
     .glass .controls { margin-top: 10px; }
@@ -86,6 +87,8 @@
     button:active { transform: translate(3px, 3px); box-shadow: none; }
     #toolbar { position: fixed; top: 16px; right: 24px; z-index: 10; display: flex; gap: 12px; }
     #toolbar button { margin: 0; }
+    #devBtn { color: #1a2961; background: #fff; }
+    #devBtn.active { color: #fff; background: #2961cc; }
     #devPanel {
       display: none;
       position: fixed;
@@ -153,14 +156,14 @@
       <button id="storm">⛈️</button>
       <button id="night">🌙</button>
     </div>
-    <button id="devBtn">🛠 Dev (`)</button>
+    <button id="devBtn">Setup</button>
   </div>
   <div id="devPanel">
     <div class="controls">
       <div class="control-row">
         <label for="bounces">Max Bounces:</label>
-        <input type="range" id="bounces" min="1" max="8" value="6">
-        <span id="bouncesValue">6</span>
+        <input type="range" id="bounces" min="1" max="8" value="4">
+        <span id="bouncesValue">4</span>
       </div>
       <div class="control-row">
         <label for="ambient">Ambient Strength:</label>
@@ -191,21 +194,6 @@
         <label for="fadeLength">Floor Fade Length:</label>
         <input type="range" id="fadeLength" min="1" max="200" value="75">
         <span id="fadeLengthValue">75</span>
-      </div>
-      <div class="control-row">
-        <label for="horizon">Horizon Band:</label>
-        <input type="range" id="horizon" min="0" max="0.2" step="0.01" value="0">
-        <span id="horizonValue">0</span>
-      </div>
-      <div class="control-row">
-        <label for="fogStart">Fog Start:</label>
-        <input type="range" id="fogStart" min="0" max="200" value="0">
-        <span id="fogStartValue">0</span>
-      </div>
-      <div class="control-row">
-        <label for="fogDensity">Fog Density:</label>
-        <input type="range" id="fogDensity" min="0" max="0.1" step="0.001" value="0">
-        <span id="fogDensityValue">0</span>
       </div>
     </div>
 
@@ -259,13 +247,10 @@ uniform float u_outline;
 uniform float u_fluffiness;
 uniform float u_fadeStart;
 uniform float u_fadeLength;
-uniform float u_horizon;
 uniform float u_night;
 uniform float u_cloudy;
 uniform float u_storm;
 uniform float u_flash;
-uniform float u_fogStart;
-uniform float u_fogDensity;
 uniform mat4 u_cameraLookat;
 
 uniform int u_glassMethod;
@@ -627,13 +612,13 @@ vec3 sky(vec3 d) {
     vec3 color = vec3(0.16, 0.38, 0.80);
     if (d.y < 0.45) color = vec3(0.26, 0.53, 0.90);
     if (d.y < 0.2) color = vec3(0.45, 0.70, 0.96);
-    if (d.y < u_horizon) color = HORIZON_COLOR;
+    if (d.y < 0.0) color = HORIZON_COLOR;
     color = mix(color, OVERCAST_COLOR, u_cloudy);
     color = mix(color, STORM_COLOR, u_storm);
 
-    if (d.y > u_horizon) {
+    if (d.y > 0.0) {
         vec2 uv = d.xz / (d.y + 0.3) * 3.0;
-        float edge = mix(0.55, 1.0 - u_fluffiness, smoothstep(u_horizon, 0.3, d.y)) - 0.25 * u_cloudy;
+        float edge = mix(0.55, 1.0 - u_fluffiness, smoothstep(0.0, 0.3, d.y)) - 0.25 * u_cloudy;
         float n = clouds(uv);
         vec2 grad = vec2(clouds(uv + vec2(0.01, 0.0)) - n, clouds(uv + vec2(0.0, 0.01)) - n) / 0.01;
         float outline = step(abs(n - edge) / max(length(grad), 0.0001), u_outline);
@@ -655,14 +640,6 @@ vec3 sky(vec3 d) {
     color += vec3(1.0, 0.9, 0.7) * (8.0 * step(0.9985, s) + 0.5 * step(0.995, s)) * (1.0 - u_cloudy);
     color += u_flash * 0.5 * vec3(0.75, 0.8, 1.0);
     return mix(color, vec3(stars(d)), u_night);
-}
-
-void addFog(float t, inout vec3 color, inout vec3 attenuation) {
-    float d = u_fogDensity * max(t - u_fogStart, 0.0);
-    float fog = 1.0 - exp(-d * d);
-    vec3 fogColor = mix(mix(HORIZON_COLOR, OVERCAST_COLOR, u_cloudy), STORM_COLOR, u_storm);
-    color += attenuation * fog * pow(fogColor, vec3(2.2)) * (1.0 - u_night);
-    attenuation *= 1.0 - fog;
 }
 
 float shadow(vec3 origin, vec3 direction, float maxT) {
@@ -728,7 +705,6 @@ vec3 traceSingle(Ray ray, int maxBounces, bool stochastic, inout float seed) {
     //use loop to simulate the recursive process as GLSL doesn't support recursions
     for (int bounce = 0; bounce < maxBounces; bounce++) {
         HitData hit = traceScene(ray);
-        if (hit.hit) addFog(hit.t, color, attenuation);
 
         if (hit.hit && hit.isGlass) {
             vec3 reflected, refracted;
@@ -752,7 +728,6 @@ vec3 traceBlend(Ray ray, inout float seed) {
 
     for (int bounce = 0; bounce < u_maxBounces; bounce++) {
         HitData hit = traceScene(ray);
-        if (hit.hit) addFog(hit.t, color, attenuation);
 
         if (hit.hit && hit.isGlass) {
             vec3 reflected, refracted;
@@ -790,7 +765,6 @@ vec3 traceTree(Ray ray) {
 
         for (int bounce = stackBounce[stackSize]; bounce < u_maxBounces; bounce++) {
             HitData hit = traceScene(ray);
-            if (hit.hit) addFog(hit.t, color, attenuation);
 
             if (hit.hit && hit.isGlass) {
                 vec3 reflected, refracted;
@@ -1179,9 +1153,6 @@ function parseMTL(text) {
   const fluffiness = document.getElementById("fluffiness");
   const fadeStart = document.getElementById("fadeStart");
   const fadeLength = document.getElementById("fadeLength");
-  const horizon = document.getElementById("horizon");
-  const fogStart = document.getElementById("fogStart");
-  const fogDensity = document.getElementById("fogDensity");
   const ior = document.getElementById("ior");
   const speed = document.getElementById("speed");
   const MODES = {
@@ -1211,11 +1182,11 @@ function parseMTL(text) {
   const devStats = document.getElementById("devStats");
   let fps = 60;
   const toggleDev = () => {
-    devPanel.classList.toggle("open");
+    devBtn.classList.toggle("active", devPanel.classList.toggle("open"));
     devBtn.blur();
   };
   devBtn.addEventListener("click", toggleDev);
-  for (const slider of [bounces, ambient, shininess, samples, outline, fluffiness, fadeStart, fadeLength, horizon, fogStart, fogDensity, speed, ior]) {
+  for (const slider of [bounces, ambient, shininess, samples, outline, fluffiness, fadeStart, fadeLength, speed, ior]) {
     slider.addEventListener("input", () => document.getElementById(slider.id + "Value").textContent = slider.value);
     slider.addEventListener("change", () => slider.blur());
   }
@@ -1240,7 +1211,7 @@ function parseMTL(text) {
   }, { passive: false });
 
   document.addEventListener("keydown", e => {
-    if (e.target === vertEditor || e.target === fragEditor) return;  // let the editors use the keys
+    if (e.target === vertEditor || e.target === fragEditor) return;
     const step = 0.05 * distance;
     const right = [Math.cos(yaw), 0, -Math.sin(yaw)];
     switch (e.key) {
@@ -1253,7 +1224,7 @@ function parseMTL(text) {
       case "`": toggleDev(); break;
       default: return;
     }
-    e.preventDefault();  // keep the arrow keys from scrolling the page
+    e.preventDefault();
   });
 
 
@@ -1356,13 +1327,10 @@ function cross(a, b) {
     gl.uniform1f(uniform("u_fluffiness"), fluffiness.value);
     gl.uniform1f(uniform("u_fadeStart"), fadeStart.value);
     gl.uniform1f(uniform("u_fadeLength"), fadeLength.value);
-    gl.uniform1f(uniform("u_horizon"), horizon.value);
     gl.uniform1f(uniform("u_night"), nightFade);
     gl.uniform1f(uniform("u_cloudy"), cloudy);
     gl.uniform1f(uniform("u_storm"), storm);
     gl.uniform1f(uniform("u_flash"), flash);
-    gl.uniform1f(uniform("u_fogStart"), fogStart.value);
-    gl.uniform1f(uniform("u_fogDensity"), fogDensity.value);
     gl.uniformMatrix4fv(uniform("u_cameraLookat"), false, lookAt(eye, target, up));
     gl.uniform3fv(uniform("u_windowCenter"), WINDOW_CENTER);
     gl.uniform1f(uniform("u_windowYaw"), WINDOW_YAW);
