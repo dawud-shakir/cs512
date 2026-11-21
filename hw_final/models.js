@@ -62,6 +62,28 @@ function createCylinder(segments, uRepeat = 3) {
   return { positions: new Float32Array(pos), normals: new Float32Array(nrm), texCoords: new Float32Array(tex), indices: new Uint16Array(idx) };
 }
 
+function createTorus(segments, sides, tube) {
+  const pos = [], nrm = [], tex = [], idx = [];
+
+  for (let i = 0; i <= segments; i++) {
+    const u = i / segments, a = u * Math.PI * 2, s = Math.sin(a), c = Math.cos(a);
+    for (let j = 0; j <= sides; j++) {
+      const v = j / sides, b = v * Math.PI * 2, r = 1 + tube * Math.cos(b), y = tube * Math.sin(b);
+      pos.push(s * r, y, c * r);
+      nrm.push(s * Math.cos(b), Math.sin(b), c * Math.cos(b));
+      tex.push(u, v);
+    }
+  }
+  for (let i = 0; i < segments; i++) {
+    for (let j = 0; j < sides; j++) {
+      const a = i * (sides + 1) + j, b = a + sides + 1;
+      idx.push(a, b, b + 1, a, b + 1, a + 1);
+    }
+  }
+
+  return { positions: new Float32Array(pos), normals: new Float32Array(nrm), texCoords: new Float32Array(tex), indices: new Uint16Array(idx) };
+}
+
 function createSphere(segments) {
   const pos = [], nrm = [], tex = [], idx = [];
 

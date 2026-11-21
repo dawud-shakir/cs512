@@ -10,6 +10,7 @@ const TILT_MAX = 0.08;
 const TILT_SPEED = 0.6;
 const TILT_GRAVITY = 750;
 const ARROW_REACH = 1.0, ARROW_BOOST = 2, LANE_BOOST = 4, ARROW_LIT = 0.25;
+const LAUNCH_FLASH = 0.3;
 const AIM_SPACING = 0.4, AIM_MARGIN = 0.05, AIM_SPEED_STEP = 2, AIM_TARGET_SPREAD = 1.5, AIM_TARGET_STEP = 0.25;
 const WALL_SOUND_DV = 3;
 
@@ -146,6 +147,7 @@ const game = {
   state: "ready",
   charge: 0,
   charging: false,
+  launch: 0,
   sounds: new Set(),
 };
 
@@ -157,6 +159,7 @@ function resetBall() {
   game.ball.rotation = identity();
   game.charging = false;
   game.charge = 0;
+  game.launch = 0;
   game.state = "ready";
 }
 
@@ -172,6 +175,7 @@ function setPlunger(down) {
   if (game.charging && ballOnPlunger()) {
     game.ball.v = [0, 36 + 20 * game.charge];
     game.state = "play";
+    game.launch = LAUNCH_FLASH;
     game.sounds.add("launch");
   }
   game.charging = false;
@@ -321,6 +325,7 @@ function stepPhysics(dt) {
   const ball = game.ball;
 
   if (game.charging) game.charge = Math.min(1, game.charge + dt);
+  game.launch = Math.max(0, game.launch - dt);
   const [left, right, down, up] = game.tilting;
   const tiltTarget = [right - left, up - down].map(d => TILT_MAX * d);
   game.tilt = game.tilt.map((t, i) => approach(t, tiltTarget[i], TILT_SPEED * dt));

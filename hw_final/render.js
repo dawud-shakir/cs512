@@ -42,7 +42,6 @@ uniform vec3 uLightDir[2];
 uniform vec3 uLightColor[2];
 uniform vec3 uUp;
 uniform vec3 uFogColor;
-uniform vec3 uSkyColor;
 uniform vec3 uBoardOrigin;
 uniform vec3 uBoardX;
 uniform vec3 uBoardY;
@@ -53,6 +52,7 @@ uniform vec2 uScreenSize;
 uniform vec3 uFloorEmissive;
 uniform vec4 uFloorRect;
 uniform vec3 uArrows[MAX_ARROWS];
+uniform mat3 uView;
 
 uniform vec3 uColor;
 uniform vec3 uEmissive;
@@ -68,6 +68,7 @@ uniform sampler2D uFloorTex0;
 uniform sampler2D uFloorTex1;
 uniform sampler2D uFloorTex2;
 uniform sampler2D uReflection;
+uniform samplerCube uEnvironment;
 uniform highp sampler2DShadow uShadowMap;
 uniform int uMapping;
 
@@ -124,9 +125,9 @@ vec3 playfield(vec3 R) {
 
 vec3 environment(vec3 R) {
   float h = dot(R, uFloorNormal);
-  vec3 horizon = 2.2 * uFogColor;
-  if (h > 0.0) return mix(horizon, uSkyColor, smoothstep(0.0, 0.5, h));
-  return mix(horizon, playfield(R), smoothstep(0.0, 0.25, -h));
+  vec3 scene = texture(uEnvironment, transpose(uView) * R).rgb;
+  if (h > 0.0) return scene;
+  return mix(scene, playfield(R), smoothstep(0.0, 0.25, -h));
 }
 
 vec3 reflection(vec2 uv) {
@@ -210,6 +211,66 @@ void main() {
 }
 `;
 
+const SKY_VERTEX_SHADER = `#version 300 es
+const vec2 corners[3] = vec2[3](vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+
+uniform mat4 uView;
+uniform mat4 uProjection;
+
+out vec3 vDirection;
+out vec3 vOrigin;
+
+void main() {
+  vec2 p = corners[gl_VertexID];
+  vec4 eye = inverse(uProjection) * vec4(p, 1.0, 1.0);
+  vDirection = transpose(mat3(uView)) * (eye.xyz / eye.w);
+  vOrigin = -transpose(mat3(uView)) * uView[3].xyz;
+  gl_Position = vec4(p, 1.0, 1.0);
+}
+`;
+
+const SKY_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+const float STAR_BRIGHTNESS = 4.0;
+const float CEILING_HEIGHT = 12.0, CEILING_CELL = 4.0, CEILING_GLOW = 0.6, HORIZON_GLOW = 1.5;
+
+in vec3 vDirection;
+in vec3 vOrigin;
+
+uniform vec3 uFogColor;
+uniform vec3 uSkyColor;
+uniform vec3 uGridColor;
+uniform float uTime;
+uniform float uStarScale;
+
+out vec4 fragColor;
+
+float ceiling(vec3 d) {
+  float t = (CEILING_HEIGHT - vOrigin.z) / max(d.z, 0.001);
+  vec2 p = (vOrigin.xy + d.xy * t) / CEILING_CELL;
+  vec2 a = abs(fract(p + 0.5) - 0.5) / fwidth(p);
+  return (1.0 - min(min(a.x, a.y), 1.0)) * smoothstep(0.0, 0.25, d.z) * smoothstep(0.0, 4.0, CEILING_HEIGHT - vOrigin.z);
+}
+
+float stars(vec3 d) {
+  vec3 p = d * uStarScale;
+  vec3 cell = floor(p);
+  float h = fract(sin(dot(cell, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+  float r = length(p - cell - 0.5);
+  float twinkle = 0.7 + 0.3 * sin(uTime * 3.0 + h * 100.0);
+  return step(0.985, h) * smoothstep(0.0, 0.3, d.z) * smoothstep(0.3, 0.0, r) * twinkle;
+}
+
+void main() {
+  vec3 d = normalize(vDirection);
+  vec3 color = mix(uFogColor, uSkyColor, smoothstep(0.0, 0.5, d.z));
+  color += HORIZON_GLOW * uFogColor * exp(-8.0 * abs(d.z));
+  color += CEILING_GLOW * uGridColor * ceiling(d);
+  fragColor = vec4(color + STAR_BRIGHTNESS * vec3(stars(d)), 1.0);
+}
+`;
+
 const POST_VERTEX_SHADER = `#version 300 es
 const vec2 corners[3] = vec2[3](vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
 out vec2 vUv;
@@ -289,6 +350,15 @@ const PALETTES = [
 ];
 
 const SHADOW_MAP_SIZE = 2048;
+const ENVIRONMENT_SIZE = 128;
+const STAR_SCALE = 150, ENVIRONMENT_STAR_SCALE = 16;
+const CUBE_FACES = [
+  { dir: [1, 0, 0], up: [0, -1, 0] },
+  { dir: [-1, 0, 0], up: [0, -1, 0] },
+  { dir: [0, 1, 0], up: [0, 0, 1] },
+  { dir: [0, -1, 0], up: [0, 0, -1] },
+  { dir: [0, 0, 1], up: [0, -1, 0] },
+];
 const BLOOM_LEVELS = 4, BLOOM_THRESHOLD = 1.0;
 const TRAIL_LENGTH = 40, TRAIL_WIDTH = 0.4, TRAIL_HEIGHT = 0.25;
 
@@ -301,11 +371,8 @@ const CABINET = {
 };
 const WALL_HEIGHT = 1.0, WALL_THICK = 0.32;
 const FLIPPER_HEIGHT = 0.65;
-const FIELD_FLOORS = [
-  { texture: "textures/neon/playfield.png", mirror: true },
-  { texture: "textures/neon/field2.png", mirror: false },
-  { texture: "textures/neon/field3.png", mirror: false },
-];
+const COIL_RINGS = 6, COIL_START = 1.9, COIL_SPACING = 0.9, COIL_RADIUS = 0.62;
+const FIELD_FLOORS = ["textures/neon/playfield.png", "textures/neon/field2.png", "textures/neon/field3.png"];
 const NO_CLIP = [0, 0, 0, 1];
 
 const GROUND = { x0: -100, y0: -90, x1: 120, y1: 150, z: -12, cell: 4 };
@@ -355,10 +422,10 @@ function getUniforms(prog, names) {
 
 const program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER);
 const uniforms = getUniforms(program, ["uModelView", "uProjection", "uShadowMatrix", "uTexRepeat", "uLightDir",
-  "uLightColor", "uUp", "uFogColor", "uSkyColor", "uColor", "uEmissive", "uTopEmissive", "uKs", "uShininess",
+  "uLightColor", "uUp", "uFogColor", "uColor", "uEmissive", "uTopEmissive", "uKs", "uShininess",
   "uReflectivity", "uMirror", "uShade", "uMapping", "uTexture", "uShadowMap", "uBoardOrigin", "uBoardX", "uBoardY",
   "uFloorNormal", "uFloorRects", "uFloorEmissive", "uFloorTex0", "uFloorTex1", "uFloorTex2", "uClipPlane",
-  "uScreenSize", "uReflection", "uFloorRect", "uArrows"]);
+  "uScreenSize", "uReflection", "uFloorRect", "uArrows", "uView", "uEnvironment"]);
 gl.useProgram(program);
 gl.uniform1i(uniforms.uTexture, 0);
 gl.uniform1i(uniforms.uShadowMap, 1);
@@ -366,12 +433,16 @@ gl.uniform1i(uniforms.uFloorTex0, 2);
 gl.uniform1i(uniforms.uReflection, 3);
 gl.uniform1i(uniforms.uFloorTex1, 4);
 gl.uniform1i(uniforms.uFloorTex2, 5);
+gl.uniform1i(uniforms.uEnvironment, 6);
 
 const shadowProgram = createProgram(SHADOW_VERTEX_SHADER, SHADOW_FRAGMENT_SHADER);
 const uLightMVP = gl.getUniformLocation(shadowProgram, "uLightMVP");
 
 const trailProgram = createProgram(TRAIL_VERTEX_SHADER, TRAIL_FRAGMENT_SHADER);
 const trailUniforms = getUniforms(trailProgram, ["uModelView", "uProjection", "uColor"]);
+
+const skyProgram = createProgram(SKY_VERTEX_SHADER, SKY_FRAGMENT_SHADER);
+const skyUniforms = getUniforms(skyProgram, ["uView", "uProjection", "uFogColor", "uSkyColor", "uGridColor", "uTime", "uStarScale"]);
 
 const blurProgram = createProgram(POST_VERTEX_SHADER, BLUR_FRAGMENT_SHADER);
 const blurUniforms = getUniforms(blurProgram, ["uImage", "uStep", "uThreshold"]);
@@ -430,6 +501,17 @@ gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER,
 const reflectionTarget = createTarget();
 const reflectionDepth = createRenderbuffer();
 gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, reflectionDepth);
+
+const environmentMap = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_CUBE_MAP, environmentMap);
+gl.texStorage2D(gl.TEXTURE_CUBE_MAP, 1, gl.RGBA16F, ENVIRONMENT_SIZE, ENVIRONMENT_SIZE);
+gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+const environmentFramebuffer = gl.createFramebuffer();
+gl.bindFramebuffer(gl.FRAMEBUFFER, environmentFramebuffer);
+const environmentDepth = createRenderbuffer();
+gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, ENVIRONMENT_SIZE, ENVIRONMENT_SIZE);
+gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, environmentDepth);
 gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
 function sizeTarget(target, w, h) {
@@ -483,6 +565,7 @@ function createMesh({ positions, normals, texCoords, indices }) {
 const cubeMesh = createMesh(createCube());
 const cylinderMesh = createMesh(createCylinder(32));
 const sphereMesh = createMesh(createSphere(32));
+const torusMesh = createMesh(createTorus(32, 12, 0.12));
 const flipperMeshes = new Map();
 function getFlipperMesh(f) {
   const key = `${f.length}:${f.radius}`;
@@ -541,7 +624,7 @@ function loadTexture(url) {
   return texture;
 }
 
-const fieldTextures = FIELD_FLOORS.map(f => loadTexture(f.texture));
+const fieldTextures = FIELD_FLOORS.map(loadTexture);
 const gridTexture = loadTexture("textures/neon/grid.png");
 
 const palette = structuredClone(PALETTES[0]);
@@ -558,14 +641,14 @@ const MATERIALS = {
   bumperRing: { color: [0, 0, 0], ks: 0, shininess: 1, emissive: palette.bumper },
   bumperCap: { color: [0.05, 0.06, 0.09], ks: 0.6, shininess: 60, top: palette.bumper },
   flipper: { color: [0.1, 0.1, 0.1], ks: 0.4, shininess: 40, emissive: palette.flipper },
-  knob: { color: [0.05, 0.05, 0.06], ks: 0.6, shininess: 60, emissive: palette.flipper },
+  coil: { color: [0.05, 0.05, 0.06], ks: 0.6, shininess: 60, emissive: palette.flipper },
   rubber: { color: [0.03, 0.03, 0.04], ks: 0.2, shininess: 24 },
   ball: { color: [0.2, 0.22, 0.26], ks: 1.2, shininess: 160, reflect: 0.8 },
   steel: { color: [0.15, 0.16, 0.18], ks: 0.8, shininess: 80, reflect: 0.4 },
 };
 
-const fieldMaterials = FIELD_FLOORS.map((f, i) =>
-  ({ ...MATERIALS.playfield, texture: fieldTextures[i], mirror: f.mirror, rect: floorRect(i) }));
+const fieldMaterials = fieldTextures.map((texture, i) =>
+  ({ ...MATERIALS.playfield, texture, mirror: true, rect: floorRect(i) }));
 
 const smoothFactor = (rate60, dt) => 1 - Math.pow(1 - rate60, dt * 60);
 
@@ -755,10 +838,12 @@ function drawFlipper(f) {
 
 function drawPlunger() {
   const x = (LANE_X + table.fields[0].x1) / 2;
-  const pull = game.charge * 1.2;
-  draw(cylinderMesh, multiply(translate(x, -0.8 - pull, 0.5), scale(0.16, 1.1, 0.16)), MATERIALS.steel);
-  draw(sphereMesh, multiply(translate(x, -1.9 - pull, 0.5), scale(0.38, 0.38, 0.38)), MATERIALS.knob, 0.15 + game.charge);
-  draw(cylinderMesh, multiply(translate(x, 0.25 - pull, 0.5), scale(0.35, 0.15, 0.35)), MATERIALS.rubber);
+  const flash = 3 * game.launch / LAUNCH_FLASH;
+  for (let i = 0; i < COIL_RINGS; i++) {
+    const lit = clamp(game.charge * COIL_RINGS - i, 0, 1);
+    draw(torusMesh, multiply(translate(x, COIL_START + i * COIL_SPACING, BALL_RADIUS), scale(COIL_RADIUS, COIL_RADIUS, COIL_RADIUS)),
+      MATERIALS.coil, 0.04 + 0.5 * lit + flash);
+  }
 }
 
 function drawBall() {
@@ -766,7 +851,7 @@ function drawBall() {
   draw(sphereMesh, multiply(translate(x, y, BALL_RADIUS), game.ball.rotation, scale(BALL_RADIUS, BALL_RADIUS, BALL_RADIUS)), MATERIALS.ball);
 }
 
-function drawScene() {
+function drawScene(withBall = true) {
   parent = board;
   table.fields.forEach(drawCabinet);
   table.walls.forEach(drawWall);
@@ -774,7 +859,7 @@ function drawScene() {
   table.bumpers.forEach(drawBumper);
   table.flippers.forEach(drawFlipper);
   drawPlunger();
-  drawBall();
+  if (withBall) drawBall();
 }
 
 function drawWorld() {
@@ -782,6 +867,23 @@ function drawWorld() {
   parent = identity();
   draw(cubeMesh, box(x0, y0, z - 0.2, x1, y1, z), MATERIALS.ground);
   for (const [bx0, by0, bx1, by1, h] of BLOCKS) draw(cubeMesh, box(bx0, by0, z, bx1, by1, z + h), MATERIALS.block);
+}
+
+let skyTime = 0;
+
+function drawSky(projection, starScale = STAR_SCALE) {
+  gl.useProgram(skyProgram);
+  gl.uniformMatrix4fv(skyUniforms.uView, false, view);
+  gl.uniformMatrix4fv(skyUniforms.uProjection, false, projection);
+  gl.uniform3fv(skyUniforms.uFogColor, palette.fog);
+  gl.uniform3fv(skyUniforms.uSkyColor, palette.sky);
+  gl.uniform3fv(skyUniforms.uGridColor, palette.grid);
+  gl.uniform1f(skyUniforms.uTime, skyTime);
+  gl.uniform1f(skyUniforms.uStarScale, starScale);
+  gl.disable(gl.DEPTH_TEST);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.enable(gl.DEPTH_TEST);
+  gl.useProgram(program);
 }
 
 function floorRect(i) {
@@ -802,9 +904,31 @@ function setView(matrix, clipPlane) {
   gl.uniform3fv(uniforms.uFloorNormal, transformDirection(floorView, [0, 0, 1]));
   gl.uniform4fv(uniforms.uFloorRects, FLOOR_RECTS_FLAT);
   gl.uniform4fv(uniforms.uClipPlane, clipPlane);
+  gl.uniformMatrix3fv(uniforms.uView, false, [0, 1, 2, 4, 5, 6, 8, 9, 10].map(i => view[i]));
 }
 
-function drawMirror(camera, mirror) {
+function drawEnvironment() {
+  const eye = transformPoint(board, [game.ball.p[0], game.ball.p[1], BALL_RADIUS]);
+  const projection = perspective(Math.PI / 2, 1, 0.1, 200);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, environmentFramebuffer);
+  gl.viewport(0, 0, ENVIRONMENT_SIZE, ENVIRONMENT_SIZE);
+  gl.activeTexture(gl.TEXTURE6);
+  gl.bindTexture(gl.TEXTURE_CUBE_MAP, null);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.uniformMatrix4fv(uniforms.uProjection, false, projection);
+  CUBE_FACES.forEach(({ dir, up }, i) => {
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, environmentMap, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    setView(lookAt(eye, add(eye, dir), up), NO_CLIP);
+    drawSky(projection, ENVIRONMENT_STAR_SCALE);
+    drawScene(false);
+  });
+  gl.activeTexture(gl.TEXTURE6);
+  gl.bindTexture(gl.TEXTURE_CUBE_MAP, environmentMap);
+  gl.activeTexture(gl.TEXTURE0);
+}
+
+function drawMirror(camera, mirror, projection) {
   const n = transformDirection(multiply(camera, board), [0, 0, 1]);
   const p = transformPoint(multiply(camera, board), [0, 0, 0]);
   gl.bindFramebuffer(gl.FRAMEBUFFER, reflectionTarget.framebuffer);
@@ -814,6 +938,7 @@ function drawMirror(camera, mirror) {
   gl.bindTexture(gl.TEXTURE_2D, null);
   gl.activeTexture(gl.TEXTURE0);
   setView(multiply(camera, mirror), [-n[0], -n[1], -n[2], n[0] * p[0] + n[1] * p[1] + n[2] * p[2] - 0.01]);
+  drawSky(projection);
   drawScene();
   drawWorld();
   gl.activeTexture(gl.TEXTURE3);
@@ -965,7 +1090,6 @@ function render(dt, insets, ballCam, zoom, strength, dev = {}) {
   gl.uniform2fv(uniforms.uScreenSize, [canvas.width, canvas.height]);
   gl.uniform3fv(uniforms.uLightColor, LIGHTS.flatMap(l => l.color));
   gl.uniform3fv(uniforms.uFogColor, palette.fog);
-  gl.uniform3fv(uniforms.uSkyColor, palette.sky);
   gl.uniform3fv(uniforms.uFloorEmissive, palette.insert);
   gl.uniform3fv(uniforms.uArrows, table.arrows.flatMap(a => [a.p[0], a.p[1], a.lit / ARROW_LIT]));
   gl.activeTexture(gl.TEXTURE2);
@@ -977,13 +1101,17 @@ function render(dt, insets, ballCam, zoom, strength, dev = {}) {
   gl.activeTexture(gl.TEXTURE1);
   gl.bindTexture(gl.TEXTURE_2D, shadowMap);
   gl.activeTexture(gl.TEXTURE0);
-  gl.clearColor(palette.fog[0], palette.fog[1], palette.fog[2], 1);
+  skyTime += dt;
+  mirrorStrength = 0;
+  drawEnvironment();
+  gl.uniformMatrix4fv(uniforms.uProjection, false, projection);
   mirrorStrength = strength;
-  if (mirrorStrength > 0 && fieldMaterials.some(mat => mat.mirror)) drawMirror(camera, mirror);
+  if (mirrorStrength > 0) drawMirror(camera, mirror, projection);
   gl.bindFramebuffer(gl.FRAMEBUFFER, msaaFramebuffer);
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   setView(camera, NO_CLIP);
+  drawSky(projection);
   drawScene();
   drawWorld();
   if (trailOn) drawTrail(projection);
