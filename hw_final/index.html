@@ -1,122 +1,711 @@
+
 <!DOCTYPE html>
 <html>
-
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#020a1c">
   <title>Pinball</title>
+
   <style>
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #020a1c; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #020a1c;
+    }
+
     body {
-      font-family: system-ui, sans-serif; color: #dff6ff;
-      touch-action: none; overscroll-behavior: none;
-      user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+      font-family: system-ui, sans-serif;
+      color:#ffffff;
+      touch-action: none;
+      overscroll-behavior: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
       -webkit-tap-highlight-color: transparent;
     }
-    canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; }
-    #hud { position: fixed; top: max(12px, env(safe-area-inset-top)); left: 16px; right: 16px;
-           font: 600 clamp(15px, 2.4vw, 22px) monospace; letter-spacing: 0.08em; text-transform: uppercase;
-           white-space: pre-wrap; text-shadow: 0 0 4px #39c6ff, 0 0 14px #0a6cff; pointer-events: none; z-index: 2; }
+
+    canvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      display: block;
+    }
+
+    #hud {
+      position: fixed;
+      top: max(12px, env(safe-area-inset-top));
+      left: 16px;
+      right: 16px;
+      font: 600 clamp(15px, 2.4vw, 22px) monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: pre-wrap;
+      text-shadow: 0 0 4px #39c6ff, 0 0 14px #0a6cff;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* -----------------------------------------
+       Shared button styling
+       ----------------------------------------- */
+
     #cameraBtn, #helpBtn, #help button {
-      padding: 7px 16px; font: 600 13px system-ui, sans-serif; color: #9fe6ff; cursor: pointer;
+      padding: 7px 16px;
+      font: 600 13px system-ui, sans-serif;
+      color: #9fe6ff;
+      cursor: pointer;
       text-shadow: 0 0 6px #39c6ff;
-      background: rgba(2, 10, 26, 0.85); border: 1px solid rgba(80, 200, 255, 0.6); border-radius: 20px;
-      box-shadow: 0 0 10px rgba(40, 160, 255, 0.45), inset 0 0 8px rgba(40, 160, 255, 0.25); }
-    #cameraBtn, #helpBtn { position: fixed; right: 16px; z-index: 10; }
-    #cameraBtn { top: max(12px, env(safe-area-inset-top)); }
-    #helpBtn { top: calc(max(12px, env(safe-area-inset-top)) + 118px); }
-    .setting { position: fixed; right: 16px; z-index: 10;
-               display: flex; align-items: center; gap: 8px; padding: 5px 14px;
-               font: 600 13px system-ui, sans-serif; color: #9fe6ff; text-shadow: 0 0 6px #39c6ff;
-               background: rgba(2, 10, 26, 0.85); border: 1px solid rgba(80, 200, 255, 0.6); border-radius: 20px;
-               box-shadow: 0 0 10px rgba(40, 160, 255, 0.45), inset 0 0 8px rgba(40, 160, 255, 0.25); }
-    .setting input { width: 110px; accent-color: #39c6ff; touch-action: auto; }
-    .setting output { min-width: 1.8em; text-align: right; font-family: monospace; }
-    #difficulty { top: calc(max(12px, env(safe-area-inset-top)) + 42px); }
-    #mirror { top: calc(max(12px, env(safe-area-inset-top)) + 80px); }
+      background: rgba(2, 10, 26, 0.85);
+      border: 1px solid rgba(80, 200, 255, 0.6);
+      border-radius: 20px;
+      box-shadow:
+        0 0 10px rgba(40, 160, 255, 0.45),
+        inset 0 0 8px rgba(40, 160, 255, 0.25);
+    }
+
+    /* -----------------------------------------
+       Right-side vertical control dock
+       ----------------------------------------- */
+
+    #uiDock {
+      position: fixed;
+      z-index: 12;
+      top: max(12px, env(safe-area-inset-top));
+      right: max(12px, env(safe-area-inset-right));
+
+      width: min(340px, calc(100vw - 24px));
+
+      max-height: calc(
+        100dvh - 24px
+        - env(safe-area-inset-top)
+        - env(safe-area-inset-bottom)
+      );
+
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+
+      box-sizing: border-box;
+      padding: 2px 4px 8px;
+
+      overflow-y: auto;
+      overflow-x: hidden;
+      pointer-events: none;
+      touch-action: pan-y;
+      scrollbar-width: thin;
+    }
+
+    #uiDock > * {
+      position: static;
+      flex-shrink: 0;
+      max-width: 100%;
+      box-sizing: border-box;
+      pointer-events: auto;
+    }
+
+    /* -----------------------------------------
+       Camera and Dev Tools button row
+       ----------------------------------------- */
+
+    #cameraRow {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      flex-wrap: wrap;
+    }
+
+    #cameraRow > button {
+      position: static !important;
+      inset: auto !important;
+      transform: none !important;
+      margin: 0;
+      white-space: nowrap;
+    }
+
+    /* -----------------------------------------
+       Difficulty and Mirror sliders
+       ----------------------------------------- */
+
+    .setting {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 14px;
+
+      font: 600 13px system-ui, sans-serif;
+      color: #9fe6ff;
+      text-shadow: 0 0 6px #39c6ff;
+
+      background: rgba(2, 10, 26, 0.85);
+      border: 1px solid rgba(80, 200, 255, 0.6);
+      border-radius: 20px;
+
+      box-shadow:
+        0 0 10px rgba(40, 160, 255, 0.45),
+        inset 0 0 8px rgba(40, 160, 255, 0.25);
+    }
+
+    .setting input {
+      width: 110px;
+      min-width: 0;
+      accent-color: #39c6ff;
+      touch-action: auto;
+    }
+
+    .setting output {
+      min-width: 1.8em;
+      text-align: right;
+      font-family: monospace;
+    }
+
+    /* -----------------------------------------
+       Conformal Mapping controls
+       ----------------------------------------- */
+
+    #escherControls {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid rgba(80, 200, 255, 0.5);
+      border-radius: 12px;
+      background: rgba(2, 10, 26, 0.9);
+      box-shadow: 0 0 14px rgba(40, 160, 255, 0.3);
+      font: 12px system-ui, sans-serif;
+    }
+
+    #escherControls summary {
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 14px;
+      color: #9fe6ff;
+    }
+
+    .escherRow {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr) 38px;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .escherRow input {
+      width: 100%;
+      min-width: 0;
+      accent-color: #39c6ff;
+      touch-action: auto;
+    }
+
+    .escherRow output {
+      color: #9fe6ff;
+      text-align: right;
+      font-family: monospace;
+    }
+
+    #escherReset {
+      margin-top: 14px;
+      padding: 6px 12px;
+      background: #0c1a30;
+      color: #dff6ff;
+      border: 1px solid #2f7fb8;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    #escherEnabled {
+      accent-color: #39c6ff;
+    }
+
+    /* -----------------------------------------
+       Help dialog
+       ----------------------------------------- */
 
     #help {
-      box-sizing: border-box; width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto;
-      padding: 20px 26px; border-radius: 14px; color: #dff6ff; font: 15px system-ui, sans-serif;
-      background: rgba(2, 8, 22, 0.94); border: 1px solid rgba(80, 200, 255, 0.6);
-      box-shadow: 0 0 24px rgba(20, 120, 255, 0.45), inset 0 0 12px rgba(20, 120, 255, 0.12);
-    }
-    #help::backdrop { background: rgba(0, 4, 12, 0.6); }
-    #help h2 { margin: 0 0 14px; font: 600 18px monospace; letter-spacing: 0.08em; text-transform: uppercase;
-               text-shadow: 0 0 6px #39c6ff; }
-    #help dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 20px; margin: 0 0 18px; }
-    #help dt { font: 600 15px monospace; color: #9fe6ff; white-space: nowrap; }
-    #help dd { margin: 0; color: #a9d6f0; }
-    #help form { text-align: right; }
-    body.touch #help .keys, body:not(.touch) #help .touch { display: none; }
+      box-sizing: border-box;
+      width: min(440px, calc(100vw - 32px));
+      max-height: calc(100dvh - 32px);
+      overflow: auto;
 
-    #touch { display: none; position: fixed; inset: 0; z-index: 1; }
-    body.touch #touch { display: block; }
-    .zone { position: absolute; top: 0; bottom: 0; width: 50%; touch-action: none; }
-    #touchLeft { left: 0; }
-    #touchRight { right: 0; }
-    .pad, #touchLaunch {
-      position: absolute; bottom: calc(16px + env(safe-area-inset-bottom));
-      display: flex; align-items: center; justify-content: center;
-      font: 700 20px system-ui, sans-serif; letter-spacing: 0.08em; color: #dff6ff;
+      padding: 20px 26px;
+      border-radius: 14px;
+      color: #dff6ff;
+      font: 15px system-ui, sans-serif;
+
+      background: rgba(2, 8, 22, 0.94);
+      border: 1px solid rgba(80, 200, 255, 0.6);
+
+      box-shadow:
+        0 0 24px rgba(20, 120, 255, 0.45),
+        inset 0 0 12px rgba(20, 120, 255, 0.12);
+    }
+
+    #help::backdrop {
+      background: rgba(0, 4, 12, 0.6);
+    }
+
+    #help h2 {
+      margin: 0 0 14px;
+      font: 600 18px monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
       text-shadow: 0 0 6px #39c6ff;
-      background: rgba(4, 14, 32, 0.55); border: 2px solid rgba(80, 200, 255, 0.55);
-      box-shadow: 0 0 12px rgba(40, 160, 255, 0.35), inset 0 0 10px rgba(40, 160, 255, 0.2);
-      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    }
+
+    #help dl {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 8px 20px;
+      margin: 0 0 18px;
+    }
+
+    #help dt {
+      font: 600 15px monospace;
+      color: #9fe6ff;
+      white-space: nowrap;
+    }
+
+    #help dd {
+      margin: 0;
+      color: #a9d6f0;
+    }
+
+    #help form {
+      text-align: right;
+    }
+
+    body.touch #help .keys,
+    body:not(.touch) #help .touch {
+      display: none;
+    }
+
+    /* -----------------------------------------
+       Touch controls
+       ----------------------------------------- */
+
+    #touch {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+    }
+
+    body.touch #touch {
+      display: block;
+    }
+
+    .zone {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 50%;
+      touch-action: none;
+    }
+
+    #touchLeft {
+      left: 0;
+    }
+
+    #touchRight {
+      right: 0;
+    }
+
+    .pad, #touchLaunch {
+      position: absolute;
+      bottom: calc(16px + env(safe-area-inset-bottom));
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      font: 700 20px system-ui, sans-serif;
+      letter-spacing: 0.08em;
+      color: #dff6ff;
+      text-shadow: 0 0 6px #39c6ff;
+
+      background: rgba(4, 14, 32, 0.55);
+      border: 2px solid rgba(80, 200, 255, 0.55);
+
+      box-shadow:
+        0 0 12px rgba(40, 160, 255, 0.35),
+        inset 0 0 10px rgba(40, 160, 255, 0.2);
+
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+
       transition: background 0.05s, transform 0.05s;
     }
-    .pad { width: min(calc(50vw - 12px - 60px), 280px); height: clamp(96px, 14vh, 120px);
-           border-radius: 20px; pointer-events: none; }
-    #touchLeft .pad { left: calc(12px + env(safe-area-inset-left)); }
-    #touchRight .pad { right: calc(12px + env(safe-area-inset-right)); }
-    #touchLaunch {
-      left: 50%; transform: translateX(-50%); z-index: 1;
-      width: 104px; height: 104px; border-radius: 50%; padding: 0; font-size: 16px;
-      touch-action: none; cursor: pointer;
+
+    .pad {
+      width: min(calc(50vw - 72px), 280px);
+      height: clamp(96px, 14vh, 120px);
+      border-radius: 20px;
+      pointer-events: none;
     }
-    .zone.down .pad, #touchLaunch.down { background: rgba(57, 198, 255, 0.85); color: #02060f;
-                                         box-shadow: 0 0 18px #39c6ff, 0 0 36px #0a6cff; }
-    .zone.down .pad { transform: scale(0.96); }
-    #touchLaunch.down { transform: translateX(-50%) scale(0.94); }
+
+    #touchLeft .pad {
+      left: calc(12px + env(safe-area-inset-left));
+    }
+
+    #touchRight .pad {
+      right: calc(12px + env(safe-area-inset-right));
+    }
+
+    #touchLaunch {
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1;
+
+      width: 104px;
+      height: 104px;
+      border-radius: 50%;
+      padding: 0;
+      font-size: 16px;
+
+      touch-action: none;
+      cursor: pointer;
+    }
+
+    .zone.down .pad,
+    #touchLaunch.down {
+      background: rgba(57, 198, 255, 0.85);
+      color: #02060f;
+      box-shadow: 0 0 18px #39c6ff, 0 0 36px #0a6cff;
+    }
+
+    .zone.down .pad {
+      transform: scale(0.96);
+    }
+
+    #touchLaunch.down {
+      transform: translateX(-50%) scale(0.94);
+    }
+
+    /* Move Conformal Mapping to bottom right on desktop; dock & collapse in touch mode */
+    #uiDock > #escherControls {
+        position: fixed;
+        top: auto;
+        left: auto;
+        bottom: max(16px, env(safe-area-inset-bottom));
+        right: 16px;
+
+        width: 280px;
+        max-width: calc(100vw - 32px);
+        max-height: 65dvh;
+
+        overflow-y: auto;
+        z-index: 12;
+    }
+
+    body.touch #uiDock > #escherControls {
+        position: static;
+        width: 280px;
+        max-width: 100%;
+        max-height: none;
+    }
+
+    body.touch #uiDock > #escherControls:not([open]) {
+        width: auto;
+    }
   </style>
 </head>
 
 <body>
-  <canvas id="glcanvas"></canvas>
-  <div id="hud"></div>
-  <button id="cameraBtn">🎥 Table Cam (C)</button>
-  <label class="setting" id="difficulty">Difficulty <input id="difficultySlider" type="range" min="0" max="10" value="5"><output id="difficultyValue">5</output></label>
-  <label class="setting" id="mirror">Mirror <input id="mirrorSlider" type="range" min="0" max="1" step="0.1" value="0.3"><output id="mirrorValue">0.3</output></label>
 
-  <button id="helpBtn">Controls (H)</button>
+  <canvas id="glcanvas"></canvas>
+
+  <div id="hud"></div>
+
+  <!-- =======================================
+       RIGHT-SIDE CONTROL DOCK
+       ======================================= -->
+
+  <div id="uiDock">
+
+    <div id="cameraRow">
+    </div>
+
+    <!-- Difficulty -->
+    <label class="setting" id="difficulty">
+      Difficulty
+      <input
+        id="difficultySlider"
+        type="range"
+        min="0"
+        max="10"
+        value="5">
+      <output id="difficultyValue">5</output>
+    </label>
+
+    <!-- Help -->
+    <button id="helpBtn">Controls (H)</button>
+
+    <button id="cameraBtn">Table Cam (C)</button>
+
+    <!-- ===================================
+         CONFORMAL MAPPING
+         =================================== -->
+
+    <details id="escherControls" open>
+
+      <summary>Conformal Mapping</summary>
+
+      <label style="display:block; margin-top:12px;">
+        <input type="checkbox" id="escherEnabled" checked>
+        Enable mapping
+      </label>
+
+      <div class="escherRow">
+        <label for="angle">Angle</label>
+        <input
+          id="angle"
+          type="range"
+          min="-3.14"
+          max="3.14"
+          step="0.01"
+          value="0.10">
+        <output>0.10</output>
+      </div>
+
+      <div class="escherRow">
+        <label for="arms">Arms</label>
+        <input
+          id="arms"
+          type="range"
+          min="0.1"
+          max="10"
+          step="0.1"
+          value="4">
+        <output>4.00</output>
+      </div>
+
+      <div class="escherRow">
+        <label for="strength">Strength</label>
+        <input
+          id="strength"
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value="0.75">
+        <output>0.75</output>
+      </div>
+
+      <div class="escherRow">
+        <label for="repeat">Repeat</label>
+        <input
+          id="repeat"
+          type="range"
+          min="1"
+          max="15"
+          step="0.1"
+          value="5">
+        <output>5.00</output>
+      </div>
+
+      <div class="escherRow">
+        <label for="frameScale">Frame Scale</label>
+        <input
+          id="frameScale"
+          type="range"
+          min="0.1"
+          max="10"
+          step="0.01"
+          value="0.52">
+        <output>0.52</output>
+      </div>
+
+      <div class="escherRow">
+        <label for="pivotX">Pivot X</label>
+        <input
+          id="pivotX"
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value="0.5">
+        <output>0.50</output>
+      </div>
+
+      <div class="escherRow">
+        <label for="pivotY">Pivot Y</label>
+        <input
+          id="pivotY"
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value="0.5">
+        <output>0.50</output>
+      </div>
+
+      <button id="escherReset" type="button">
+        Reset
+      </button>
+
+    </details>
+
+  </div>
+
+  <!-- =======================================
+       HELP DIALOG
+       ======================================= -->
 
   <dialog id="help">
+
     <h2>Controls</h2>
+
     <dl class="keys">
-      <dt>Z, &larr;, Left Shift</dt><dd>Left flipper</dd>
-      <dt>/, &rarr;, Right Shift</dt><dd>Right flipper</dd>
-      <dt>Space, &darr;</dt><dd>Hold to charge, release to launch</dd>
-      <dt>W A S D</dt><dd>Tilt the table</dd>
-      <dt>C</dt><dd>Next camera</dd>
-      <dt>Mouse drag</dt><dd>Orbit the camera</dd>
-      <dt>Double-click</dt><dd>Reset the camera</dd>
-      <dt>Mouse scroll</dt><dd>Zoom</dd>
-      <dt>H, Esc</dt><dd>Close this window</dd>
+      <dt>Z, &larr;, Left Shift</dt>
+      <dd>Left flipper</dd>
+
+      <dt>/, &rarr;, Right Shift</dt>
+      <dd>Right flipper</dd>
+
+      <dt>Space, &darr;</dt>
+      <dd>Hold to charge, release to launch</dd>
+
+      <dt>W A S D</dt>
+      <dd>Tilt the table</dd>
+
+      <dt>C</dt>
+      <dd>Next camera</dd>
+
+      <dt>F</dt>
+      <dd>Next floor</dd>
+
+      <dt>Mouse drag</dt>
+      <dd>Orbit the camera</dd>
+
+      <dt>Double-click</dt>
+      <dd>Reset the camera</dd>
+
+      <dt>Mouse scroll</dt>
+      <dd>Zoom</dd>
+
+      <dt>H, Esc</dt>
+      <dd>Close this window</dd>
     </dl>
+
     <dl class="touch">
-      <dt>Left half</dt><dd>Left flipper</dd>
-      <dt>Right half</dt><dd>Right flipper</dd>
-      <dt>LAUNCH</dt><dd>Hold to charge, release to launch</dd>
+      <dt>Left half</dt>
+      <dd>Left flipper</dd>
+
+      <dt>Right half</dt>
+      <dd>Right flipper</dd>
+
+      <dt>LAUNCH</dt>
+      <dd>Hold to charge, release to launch</dd>
     </dl>
-    <form method="dialog"><button>Resume</button></form>
+
+    <form method="dialog">
+      <button>Resume</button>
+    </form>
+
   </dialog>
 
+  <!-- =======================================
+       TOUCH INPUT
+       ======================================= -->
+
   <div id="touch">
-    <div class="zone" id="touchLeft"><div class="pad">&#9664; FLIP</div></div>
-    <div class="zone" id="touchRight"><div class="pad">FLIP &#9654;</div></div>
+
+    <div class="zone" id="touchLeft">
+      <div class="pad">&#9664; FLIP</div>
+    </div>
+
+    <div class="zone" id="touchRight">
+      <div class="pad">FLIP &#9654;</div>
+    </div>
+
     <button id="touchLaunch">LAUNCH</button>
+
   </div>
+
+  <!-- =======================================
+       ESCHER CONTROL STATE
+       ======================================= -->
+
+  <script>
+
+    const escherDefaults = {
+      angle: 0.10,
+      arms: 4.0,
+      strength: 0.75,
+      repeat: 5.0,
+      frameScale: 0.52,
+      pivotX: 0.5,
+      pivotY: 0.5
+    };
+
+    window.escherParams = {
+      ...escherDefaults,
+      enabled: true
+    };
+
+    const panel = document.getElementById("escherControls");
+
+    // Update shader parameters when sliders move.
+    panel.querySelectorAll('input[type="range"]')
+      .forEach(input => {
+
+        input.addEventListener("input", () => {
+
+          window.escherParams[input.id] =
+            Number(input.value);
+
+          input.nextElementSibling.textContent =
+            Number(input.value).toFixed(2);
+
+        });
+
+      });
+
+    // Enable or disable mapping.
+    document.getElementById("escherEnabled")
+      .addEventListener("change", e => {
+
+        window.escherParams.enabled =
+          e.target.checked;
+
+      });
+
+    // Reset all mapping controls.
+    document.getElementById("escherReset")
+      .addEventListener("click", () => {
+
+        Object.assign(
+          window.escherParams,
+          escherDefaults
+        );
+
+        window.escherParams.enabled = true;
+
+        document.getElementById("escherEnabled")
+          .checked = true;
+
+        panel.querySelectorAll('input[type="range"]')
+          .forEach(input => {
+
+            input.value = escherDefaults[input.id];
+
+            input.nextElementSibling.textContent =
+              Number(input.value).toFixed(2);
+
+          });
+
+      });
+
+  </script>
+
+  <!-- =======================================
+       GAME SCRIPTS
+       ======================================= -->
 
   <script src="transforms.js"></script>
   <script src="models.js"></script>
@@ -124,6 +713,66 @@
   <script src="render.js"></script>
   <script src="devtools.js"></script>
   <script src="main.js"></script>
-</body>
 
+  <!-- =======================================
+       MOVE DEV TOOLS BESIDE CAMERA
+       ======================================= -->
+
+  <script>
+
+    function moveDevTools() {
+
+      const row =
+        document.getElementById("cameraRow");
+
+      //Find the existing Dev Tools button.
+      const devButton =
+        [...document.querySelectorAll("button")]
+          .find(button => {
+
+            if (button.id === "cameraBtn") {
+              return false;
+            }
+
+            const text =
+              button.textContent.trim();
+
+            return /\bdev(?:eloper)?(?:\s*tools?)?\b/i
+              .test(text);
+
+          });
+
+      if (!devButton) {
+        return false;
+      }
+
+      if (devButton.parentElement !== row) {
+        row.appendChild(devButton);
+      }
+
+      return true;
+    }
+
+    //Try immediately after all game scripts load.
+    if (!moveDevTools()) {
+
+      //Handle a Dev Tools button created later.
+      const observer = new MutationObserver(() => {
+
+        if (moveDevTools()) {
+          observer.disconnect();
+        }
+
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+
+    }
+
+  </script>
+
+</body>
 </html>

@@ -9,6 +9,8 @@ const devTools = (() => {
     trail: true,
     shadows: true,
     palette: -1,
+    mirror: 0.3,
+    floor: PLAIN_FLOOR,
   };
 
   const style = document.createElement("style");
@@ -38,6 +40,12 @@ const devTools = (() => {
       border: 1px solid rgba(80, 200, 255, 0.45); border-radius: 8px;
     }
     .dev-btns button.active { background: #39c6ff; color: #02060f; border-color: #39c6ff; }
+    .dev-swatches { display: flex; gap: 6px; }
+    .dev-swatches button {
+      width: 48px; height: 30px; padding: 0; cursor: pointer; touch-action: manipulation; opacity: 0.55;
+      background: center / cover; border: 1px solid rgba(80, 200, 255, 0.3); border-radius: 6px;
+    }
+    .dev-swatches button.active { opacity: 1; border-color: #9fe6ff; box-shadow: 0 0 8px #39c6ff; }
     .dev-checks { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: #a9d6f0; }
     .dev-checks label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
     .dev-checks input { accent-color: #39c6ff; margin: 0; }
@@ -55,6 +63,19 @@ const devTools = (() => {
   const panel = document.createElement("div");
   panel.id = "devPanel";
   panel.innerHTML = `
+    <div class="dev-row">
+      <span>Floor</span>
+      <div class="dev-swatches" id="devFloors">
+        <button title="Circuit (F)" style="background-image: url(textures/thumbs/circuit.png)"></button>
+        <button title="Conformal (F)" style="background-image: url(textures/thumbs/conformal.png)"></button>
+        <button class="active" title="Plain (F)" style="background-image: url(textures/thumbs/plain.png)"></button>
+      </div>
+    </div>
+    <div class="dev-row">
+      <span>Mirror</span>
+      <input id="devMirror" type="range" min="0" max="1" step="0.1" value="0.3">
+      <output id="devMirrorValue">0.3</output>
+    </div>
     <div class="dev-row">
       <span>Speed</span>
       <input id="devSpeed" type="range" min="0.05" max="2" step="0.05" value="0.35">
@@ -92,6 +113,19 @@ const devTools = (() => {
   const pauseBtn = panel.querySelector("#devPause");
   const statsEl = panel.querySelector("#devStats");
   const paletteBtns = [...panel.querySelectorAll("#devPalettes button")];
+  const floorBtns = [...panel.querySelectorAll("#devFloors button")];
+  const mirrorInput = panel.querySelector("#devMirror");
+  const mirrorOutput = panel.querySelector("#devMirrorValue");
+
+  function setFloor(i) {
+    state.floor = i;
+    floorBtns.forEach((b, k) => b.classList.toggle("active", k === i));
+  }
+
+  function setMirror(v) {
+    state.mirror = Number(v);
+    mirrorOutput.textContent = state.mirror.toFixed(1);
+  }
 
   function toggle(force) {
     state.open = typeof force === "boolean" ? force : !state.open;
@@ -131,6 +165,9 @@ const devTools = (() => {
   }
 
   btn.addEventListener("click", () => toggle());
+  floorBtns.forEach((b, i) => b.addEventListener("click", () => { setFloor(i); b.blur(); }));
+  mirrorInput.addEventListener("input", () => setMirror(mirrorInput.value));
+  mirrorInput.addEventListener("change", () => mirrorInput.blur());
   speedInput.addEventListener("input", () => setSpeed(speedInput.value));
   speedInput.addEventListener("change", () => speedInput.blur());
   panel.querySelector("#devSpeedReset").addEventListener("click", e => { setSpeed(1); e.target.blur(); });
@@ -174,6 +211,10 @@ const devTools = (() => {
         if (down) toggle();
         return true;
       }
+      if (code === "KeyF") {
+        if (down) setFloor((state.floor + 1) % floorBtns.length);
+        return true;
+      }
       if (code === "KeyP" && (state.open || state.paused)) {
         if (down) setPaused(!state.paused);
         return true;
@@ -194,6 +235,8 @@ const devTools = (() => {
         trail: state.trail,
         shadows: state.shadows,
         palette: state.palette,
+        mirror: state.mirror,
+        floor: state.floor,
         simDt,
       };
     },

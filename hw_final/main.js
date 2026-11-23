@@ -124,7 +124,7 @@ function setCamera(i) {
   orbitYaw = CAMERAS[i].yaw;
   orbitPitch = CAMERAS[i].pitch;
   zoom = CAMERAS[i].zoom;
-  cameraBtn.textContent = `🎥 ${CAMERAS[(i + 1) % CAMERAS.length].name} (C)`;
+  cameraBtn.textContent = `${CAMERAS[(i + 1) % CAMERAS.length].name} (C)`;
 }
 function toggleCamera() {
   setCamera((cameraIndex + 1) % CAMERAS.length);
@@ -140,17 +140,6 @@ function setDifficulty() {
 difficultySlider.addEventListener("input", setDifficulty);
 difficultySlider.addEventListener("change", () => difficultySlider.blur());
 setDifficulty();
-
-let mirror = 0;
-const mirrorSlider = document.getElementById("mirrorSlider");
-const mirrorValue = document.getElementById("mirrorValue");
-function setMirror() {
-  mirror = Number(mirrorSlider.value);
-  mirrorValue.textContent = mirror.toFixed(1);
-}
-mirrorSlider.addEventListener("input", setMirror);
-mirrorSlider.addEventListener("change", () => mirrorSlider.blur());
-setMirror();
 
 let zoom = 1;
 window.addEventListener("wheel", e => {
@@ -168,7 +157,7 @@ canvas.addEventListener("dblclick", () => setCamera(cameraIndex));
 let screenInsets = { top: 0, bottom: 0 };
 
 function measureInsets() {
-  const rects = [...document.querySelectorAll("#hud, .setting, #helpBtn, .pad, #touchLaunch")]
+  const rects = [...document.querySelectorAll("#hud, .setting, #helpBtn, #cameraBtn, .pad, #touchLaunch")]
     .map(el => el.getBoundingClientRect()).filter(r => r.height > 0);
   const h = window.innerHeight;
   const padsBeside = document.body.classList.contains("touch") && window.innerWidth > h;
@@ -179,9 +168,12 @@ function measureInsets() {
 }
 window.addEventListener("resize", measureInsets);
 
+const escherControls = document.getElementById("escherControls");
+
 function setTouchMode(on) {
   if (document.body.classList.contains("touch") === on) return;
   document.body.classList.toggle("touch", on);
+  if (escherControls) escherControls.open = !on;
   measureInsets();
 }
 
@@ -194,6 +186,7 @@ function updateHud() {
 }
 
 document.body.classList.toggle("touch", matchMedia("(pointer: coarse)").matches);
+if (escherControls) escherControls.open = !document.body.classList.contains("touch");
 newGame();
 updateHud();
 measureInsets();
@@ -207,7 +200,7 @@ function frame(now) {
   if (!help.open) stepPhysics(simDt);
   for (const name of game.sounds) playSound(name);
   game.sounds.clear();
-  render(dt, screenInsets, CAMERAS[cameraIndex].ballCam, zoom, mirror, hasDev ? devTools.renderOptions(simDt) : undefined);
+  render(dt, screenInsets, CAMERAS[cameraIndex].ballCam, zoom, hasDev ? devTools.renderOptions(simDt) : undefined);
   updateHud();
   if (hasDev) devTools.updateStats(dt, zoom);
   requestAnimationFrame(frame);
