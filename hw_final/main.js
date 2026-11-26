@@ -71,7 +71,10 @@ window.addEventListener("keydown", e => onKey(e, true));
 window.addEventListener("keyup", e => onKey(e, false));
 
 function releaseAllInputs() {
-  if (heldKeys.size === 0) return;
+  cancelTouchLeft();
+  cancelTouchRight();
+  cancelTouchLaunch();
+  resetTiltStick();
   heldKeys.clear();
   setFlipper(0, false);
   setFlipper(1, false);
@@ -99,15 +102,95 @@ function holdControl(el, onChange) {
   };
   el.addEventListener("pointerup", release);
   el.addEventListener("pointercancel", release);
+  return () => {
+    for (const id of fingers) if (el.hasPointerCapture(id)) el.releasePointerCapture(id);
+    fingers.clear();
+    el.classList.remove("down");
+  };
+}
+
+function tiltStickControl(el, knob, onChange) {
+  const MAX_TRAVEL = 26;
+  const INPUT_RADIUS = 32;
+  const DEADZONE = 0.08;
+  let activeId = null;
+
+  function apply(clientX, clientY) {
+    const r = el.getBoundingClientRect();
+    const dx = clientX - (r.left + r.width / 2);
+    const dy = clientY - (r.top + r.height / 2);
+    const dist = Math.hypot(dx, dy);
+    const clamped = Math.min(dist, MAX_TRAVEL);
+    const kx = dist > 0 ? (dx / dist) * clamped : 0;
+    const ky = dist > 0 ? (dy / dist) * clamped : 0;
+    knob.style.transform = `translate(${kx.toFixed(1)}px, ${ky.toFixed(1)}px)`;
+
+    const raw = Math.min(1, dist / INPUT_RADIUS);
+    const mag = raw <= DEADZONE ? 0 : (raw - DEADZONE) / (1 - DEADZONE);
+    const ux = dist > 0 ? (dx / dist) * mag : 0;
+    const uy = dist > 0 ? (-dy / dist) * mag : 0;
+    onChange(ux, uy);
+  }
+
+  function reset() {
+    if (activeId !== null) {
+      if (el.hasPointerCapture(activeId)) el.releasePointerCapture(activeId);
+      activeId = null;
+    }
+    el.classList.remove("down");
+    knob.style.transform = "";
+    onChange(0, 0);
+  }
+
+  el.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    if (activeId !== null) return;
+    activeId = e.pointerId;
+    el.setPointerCapture(e.pointerId);
+    el.classList.add("down");
+    apply(e.clientX, e.clientY);
+  });
+
+  el.addEventListener("pointermove", e => {
+    if (e.pointerId !== activeId) return;
+    e.preventDefault();
+    apply(e.clientX, e.clientY);
+  });
+
+  const release = e => {
+    if (e.pointerId !== activeId) return;
+    reset();
+  };
+  el.addEventListener("pointerup", release);
+  el.addEventListener("pointercancel", release);
+  el.addEventListener("lostpointercapture", release);
+
+  return reset;
 }
 
 const flipperControl = i => down => {
   setFlipper(i, down);
   if (down) navigator.vibrate?.(8);
 };
-holdControl(document.getElementById("touchLeft"), flipperControl(0));
-holdControl(document.getElementById("touchRight"), flipperControl(1));
-holdControl(document.getElementById("touchLaunch"), setPlunger);
+const touchEl = document.getElementById("touch");
+const cancelTouchLeft = holdControl(document.getElementById("touchLeft"), flipperControl(0));
+const cancelTouchRight = holdControl(document.getElementById("touchRight"), flipperControl(1));
+const cancelTouchLaunch = holdControl(document.getElementById("touchLaunch"), setPlunger);
+const resetTiltStick = tiltStickControl(
+  document.getElementById("touchTilt"),
+  document.getElementById("touchTiltKnob"),
+  setTiltStick,
+);
+
+let touchPlaying = null;
+function syncTouchControls() {
+  const playing = game.state === "play";
+  if (playing === touchPlaying) return;
+  touchPlaying = playing;
+  touchEl.classList.toggle("playing", playing);
+  if (playing) cancelTouchLaunch();
+  else resetTiltStick();
+}
 
 window.addEventListener("pointerdown", e => { if (e.pointerType === "touch") setTouchMode(true); }, true);
 window.addEventListener("contextmenu", e => e.preventDefault());
@@ -119,12 +202,18 @@ const CAMERAS = [
 ];
 let cameraIndex = 0;
 const cameraBtn = document.getElementById("cameraBtn");
+function updateCameraLabel() {
+  const nextName = CAMERAS[(cameraIndex + 1) % CAMERAS.length].name;
+  cameraBtn.textContent = document.body.classList.contains("touch")
+    ? `🎥 ${nextName.replace(/ Cam$/, "")}`
+    : `${nextName} (C)`;
+}
 function setCamera(i) {
   cameraIndex = i;
   orbitYaw = CAMERAS[i].yaw;
   orbitPitch = CAMERAS[i].pitch;
   zoom = CAMERAS[i].zoom;
-  cameraBtn.textContent = `${CAMERAS[(i + 1) % CAMERAS.length].name} (C)`;
+  updateCameraLabel();
 }
 function toggleCamera() {
   setCamera((cameraIndex + 1) % CAMERAS.length);
@@ -157,7 +246,7 @@ canvas.addEventListener("dblclick", () => setCamera(cameraIndex));
 let screenInsets = { top: 0, bottom: 0 };
 
 function measureInsets() {
-  const rects = [...document.querySelectorAll("#hud, .setting, #helpBtn, #cameraBtn, .pad, #touchLaunch")]
+  const rects = [...document.querySelectorAll("#hud, #cameraRow, body:not(.touch) .setting, body:not(.touch) #helpBtn, #cameraBtn, .pad, #touchLaunch, #touchTilt")]
     .map(el => el.getBoundingClientRect()).filter(r => r.height > 0);
   const h = window.innerHeight;
   const padsBeside = document.body.classList.contains("touch") && window.innerWidth > h;
@@ -168,17 +257,67 @@ function measureInsets() {
 }
 window.addEventListener("resize", measureInsets);
 
+const uiDock = document.getElementById("uiDock");
+const cameraRow = document.getElementById("cameraRow");
+const settingsDrawer = document.getElementById("settingsDrawer");
+const settingsBtn = document.getElementById("settingsBtn");
 const escherControls = document.getElementById("escherControls");
+
+function updateDevLabel() {
+  const btn = document.getElementById("devBtn");
+  if (!btn) return;
+  const touch = document.body.classList.contains("touch");
+  btn.textContent = touch ? "🛠 Dev" : "🛠 Dev (`)";
+  btn.classList.toggle("active", touch && typeof devTools !== "undefined" && devTools.state.open);
+}
+
+function syncMobileControls() {
+  const touch = document.body.classList.contains("touch");
+  if (touch) {
+    cameraRow.insertBefore(cameraBtn, settingsBtn);
+  } else if (cameraBtn.parentElement !== settingsDrawer) {
+    settingsDrawer.insertBefore(cameraBtn, escherControls);
+  }
+  if (escherControls) escherControls.open = !touch;
+  updateCameraLabel();
+  updateDevLabel();
+}
+
+function setSettingsOpen(open) {
+  uiDock.classList.toggle("settings-open", open);
+  settingsBtn.classList.toggle("active", open);
+  settingsBtn.setAttribute("aria-expanded", String(open));
+  if (open && typeof devTools !== "undefined" && devTools.state.open) {
+    devTools.toggle(false);
+  }
+  updateDevLabel();
+}
+
+settingsBtn.addEventListener("click", () => {
+  setSettingsOpen(!uiDock.classList.contains("settings-open"));
+  settingsBtn.blur();
+});
+
+document.getElementById("devBtn")?.addEventListener("click", () => {
+  if (typeof devTools !== "undefined" && devTools.state.open) {
+    setSettingsOpen(false);
+  } else {
+    updateDevLabel();
+  }
+});
 
 function setTouchMode(on) {
   if (document.body.classList.contains("touch") === on) return;
   document.body.classList.toggle("touch", on);
-  if (escherControls) escherControls.open = !on;
+  if (!on) resetTiltStick();
+  setSettingsOpen(false);
+  syncMobileControls();
   measureInsets();
 }
 
 const hud = document.getElementById("hud");
 function updateHud() {
+  syncTouchControls();
   const touch = document.body.classList.contains("touch");
   const status = game.state === "over" ? (touch ? "GAME OVER - tap LAUNCH" : "GAME OVER - press Space")
     : game.state === "ready" ? (touch ? "Hold LAUNCH" : "Hold Space to launch") : "";
@@ -186,7 +325,7 @@ function updateHud() {
 }
 
 document.body.classList.toggle("touch", matchMedia("(pointer: coarse)").matches);
-if (escherControls) escherControls.open = !document.body.classList.contains("touch");
+syncMobileControls();
 newGame();
 updateHud();
 measureInsets();

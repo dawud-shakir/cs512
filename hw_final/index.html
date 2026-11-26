@@ -54,7 +54,7 @@
        Shared button styling
        ----------------------------------------- */
 
-    #cameraBtn, #helpBtn, #help button {
+    #cameraBtn, #settingsBtn, #helpBtn, #help button {
       padding: 7px 16px;
       font: 600 13px system-ui, sans-serif;
       color: #9fe6ff;
@@ -66,6 +66,14 @@
       box-shadow:
         0 0 10px rgba(40, 160, 255, 0.45),
         inset 0 0 8px rgba(40, 160, 255, 0.25);
+    }
+
+    #settingsBtn {
+      display: none;
+    }
+
+    #settingsDrawer {
+      display: contents;
     }
 
     /* -----------------------------------------
@@ -315,7 +323,7 @@
       right: 0;
     }
 
-    .pad, #touchLaunch {
+    .pad, #touchLaunch, #touchTilt {
       position: absolute;
       bottom: calc(16px + env(safe-area-inset-bottom));
 
@@ -356,19 +364,88 @@
       right: calc(12px + env(safe-area-inset-right));
     }
 
-    #touchLaunch {
+    #touchLaunch, #touchTilt {
       left: 50%;
       transform: translateX(-50%);
       z-index: 1;
 
+      box-sizing: border-box;
       width: 104px;
       height: 104px;
       border-radius: 50%;
       padding: 0;
-      font-size: 16px;
 
       touch-action: none;
+    }
+
+    #touchLaunch {
+      font-size: 16px;
       cursor: pointer;
+    }
+
+    #touchTilt {
+      cursor: grab;
+    }
+
+    #touchTilt.down {
+      cursor: grabbing;
+      border-color: rgba(120, 220, 255, 0.9);
+      box-shadow:
+        0 0 18px rgba(57, 198, 255, 0.55),
+        inset 0 0 14px rgba(57, 198, 255, 0.3);
+    }
+
+    .tilt-arrow {
+      position: absolute;
+      font-size: 8px;
+      line-height: 1;
+      color: rgba(159, 230, 255, 0.45);
+      text-shadow: none;
+      pointer-events: none;
+    }
+
+    .tilt-arrow.up { top: 6px; left: 50%; transform: translateX(-50%); }
+    .tilt-arrow.down { bottom: 6px; left: 50%; transform: translateX(-50%); }
+    .tilt-arrow.left { left: 6px; top: 50%; transform: translateY(-50%); }
+    .tilt-arrow.right { right: 6px; top: 50%; transform: translateY(-50%); }
+
+    #touchTiltKnob {
+      box-sizing: border-box;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      font: 700 11px system-ui, sans-serif;
+      letter-spacing: 0.08em;
+      color: #dff6ff;
+      text-shadow: 0 0 6px #39c6ff;
+
+      background: rgba(16, 48, 92, 0.85);
+      border: 2px solid rgba(120, 215, 255, 0.85);
+      box-shadow:
+        0 0 10px rgba(57, 198, 255, 0.45),
+        inset 0 0 8px rgba(57, 198, 255, 0.25);
+
+      pointer-events: none;
+      transition: transform 0.1s ease-out, background 0.05s, box-shadow 0.05s;
+    }
+
+    #touchTilt.down #touchTiltKnob {
+      background: rgba(57, 198, 255, 0.9);
+      border-color: #dff6ff;
+      color: #02060f;
+      text-shadow: none;
+      box-shadow: 0 0 16px #39c6ff, 0 0 28px #0a6cff;
+      transition: background 0.05s, box-shadow 0.05s;
+    }
+
+    #touch.playing #touchLaunch,
+    #touch:not(.playing) #touchTilt {
+      display: none;
     }
 
     .zone.down .pad,
@@ -386,8 +463,8 @@
       transform: translateX(-50%) scale(0.94);
     }
 
-    /* Move Conformal Mapping to bottom right on desktop; dock & collapse in touch mode */
-    #uiDock > #escherControls {
+    /* Move Conformal Mapping to bottom right on desktop; integrate into mobile drawer in touch mode */
+    #escherControls {
         position: fixed;
         top: auto;
         left: auto;
@@ -402,15 +479,117 @@
         z-index: 12;
     }
 
-    body.touch #uiDock > #escherControls {
-        position: static;
-        width: 280px;
-        max-width: 100%;
-        max-height: none;
+    /* -----------------------------------------
+       Mobile / Touch UI layout
+       ----------------------------------------- */
+
+    body.touch #hud {
+      left: 12px;
+      right: 12px;
+      font-size: clamp(13px, 3.2vw, 18px);
     }
 
-    body.touch #uiDock > #escherControls:not([open]) {
-        width: auto;
+    @media (max-width: 600px) {
+      body.touch #hud {
+        right: 224px;
+      }
+    }
+
+    body.touch #helpBtn {
+      display: none;
+    }
+
+    body.touch #settingsBtn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    body.touch #cameraRow {
+      gap: 6px;
+      flex-wrap: nowrap;
+    }
+
+    body.touch #cameraRow > button {
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+
+    body.touch #settingsBtn.active,
+    body.touch #devBtn.active {
+      background: #39c6ff;
+      color: #02060f;
+      text-shadow: none;
+      border-color: #39c6ff;
+    }
+
+    body.touch #settingsDrawer {
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      width: min(296px, calc(100vw - 24px));
+      max-height: calc(
+        100dvh - 184px
+        - env(safe-area-inset-top)
+        - env(safe-area-inset-bottom)
+      );
+      padding: 12px;
+      overflow-y: auto;
+      box-sizing: border-box;
+      background: rgba(2, 10, 26, 0.94);
+      border: 1px solid rgba(80, 200, 255, 0.55);
+      border-radius: 14px;
+      box-shadow:
+        0 0 18px rgba(20, 120, 255, 0.35),
+        inset 0 0 10px rgba(40, 160, 255, 0.16);
+    }
+
+    body.touch #uiDock.settings-open #settingsDrawer {
+      display: flex;
+    }
+
+    body.touch #settingsDrawer .setting {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr) 38px;
+      align-items: center;
+      gap: 8px;
+      padding: 2px 0;
+      background: none;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+      font-size: 13px;
+    }
+
+    body.touch #settingsDrawer .setting input {
+      width: 100%;
+    }
+
+    body.touch #settingsDrawer #escherControls {
+      position: static;
+      width: 100%;
+      max-width: 100%;
+      max-height: none;
+      padding: 10px 0 0;
+      border: 0;
+      border-top: 1px solid rgba(80, 200, 255, 0.25);
+      border-radius: 0;
+      background: none;
+      box-shadow: none;
+      overflow: visible;
+    }
+
+    body.touch #devPanel {
+      top: calc(max(12px, env(safe-area-inset-top)) + 44px);
+      right: max(12px, env(safe-area-inset-right));
+      width: min(280px, calc(100vw - 24px));
+      max-height: calc(
+        100dvh - 184px
+        - env(safe-area-inset-top)
+        - env(safe-area-inset-bottom)
+      );
+      overflow-y: auto;
+      z-index: 13;
     }
   </style>
 </head>
@@ -428,127 +607,130 @@
   <div id="uiDock">
 
     <div id="cameraRow">
+      <button id="settingsBtn" type="button" aria-expanded="false">⚙ Tune</button>
     </div>
 
-    <!-- Difficulty -->
-    <label class="setting" id="difficulty">
-      Difficulty
-      <input
-        id="difficultySlider"
-        type="range"
-        min="0"
-        max="10"
-        value="5">
-      <output id="difficultyValue">5</output>
-    </label>
-
-    <!-- Help -->
-    <button id="helpBtn">Controls (H)</button>
-
-    <button id="cameraBtn">Table Cam (C)</button>
-
-    <!-- ===================================
-         CONFORMAL MAPPING
-         =================================== -->
-
-    <details id="escherControls" open>
-
-      <summary>Conformal Mapping</summary>
-
-      <label style="display:block; margin-top:12px;">
-        <input type="checkbox" id="escherEnabled" checked>
-        Enable mapping
+    <div id="settingsDrawer">
+      <!-- Difficulty -->
+      <label class="setting" id="difficulty">
+        Difficulty
+        <input
+          id="difficultySlider"
+          type="range"
+          min="0"
+          max="10"
+          value="5">
+        <output id="difficultyValue">5</output>
       </label>
 
-      <div class="escherRow">
-        <label for="angle">Angle</label>
-        <input
-          id="angle"
-          type="range"
-          min="-3.14"
-          max="3.14"
-          step="0.01"
-          value="0.10">
-        <output>0.10</output>
-      </div>
+      <!-- Help -->
+      <button id="helpBtn">Controls (H)</button>
 
-      <div class="escherRow">
-        <label for="arms">Arms</label>
-        <input
-          id="arms"
-          type="range"
-          min="0.1"
-          max="10"
-          step="0.1"
-          value="4">
-        <output>4.00</output>
-      </div>
+      <button id="cameraBtn">Table Cam (C)</button>
 
-      <div class="escherRow">
-        <label for="strength">Strength</label>
-        <input
-          id="strength"
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value="0.75">
-        <output>0.75</output>
-      </div>
+      <!-- ===================================
+           CONFORMAL MAPPING
+           =================================== -->
 
-      <div class="escherRow">
-        <label for="repeat">Repeat</label>
-        <input
-          id="repeat"
-          type="range"
-          min="1"
-          max="15"
-          step="0.1"
-          value="5">
-        <output>5.00</output>
-      </div>
+      <details id="escherControls" open>
 
-      <div class="escherRow">
-        <label for="frameScale">Frame Scale</label>
-        <input
-          id="frameScale"
-          type="range"
-          min="0.1"
-          max="10"
-          step="0.01"
-          value="0.52">
-        <output>0.52</output>
-      </div>
+        <summary>Conformal Mapping</summary>
 
-      <div class="escherRow">
-        <label for="pivotX">Pivot X</label>
-        <input
-          id="pivotX"
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value="0.5">
-        <output>0.50</output>
-      </div>
+        <label style="display:block; margin-top:12px;">
+          <input type="checkbox" id="escherEnabled" checked>
+          Enable mapping
+        </label>
 
-      <div class="escherRow">
-        <label for="pivotY">Pivot Y</label>
-        <input
-          id="pivotY"
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value="0.5">
-        <output>0.50</output>
-      </div>
+        <div class="escherRow">
+          <label for="angle">Angle</label>
+          <input
+            id="angle"
+            type="range"
+            min="-3.14"
+            max="3.14"
+            step="0.01"
+            value="0.10">
+          <output>0.10</output>
+        </div>
 
-      <button id="escherReset" type="button">
-        Reset
-      </button>
+        <div class="escherRow">
+          <label for="arms">Arms</label>
+          <input
+            id="arms"
+            type="range"
+            min="0.1"
+            max="10"
+            step="0.1"
+            value="4">
+          <output>4.00</output>
+        </div>
 
-    </details>
+        <div class="escherRow">
+          <label for="strength">Strength</label>
+          <input
+            id="strength"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value="0.75">
+          <output>0.75</output>
+        </div>
+
+        <div class="escherRow">
+          <label for="repeat">Repeat</label>
+          <input
+            id="repeat"
+            type="range"
+            min="1"
+            max="15"
+            step="0.1"
+            value="5">
+          <output>5.00</output>
+        </div>
+
+        <div class="escherRow">
+          <label for="frameScale">Frame Scale</label>
+          <input
+            id="frameScale"
+            type="range"
+            min="0.1"
+            max="10"
+            step="0.01"
+            value="0.52">
+          <output>0.52</output>
+        </div>
+
+        <div class="escherRow">
+          <label for="pivotX">Pivot X</label>
+          <input
+            id="pivotX"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value="0.5">
+          <output>0.50</output>
+        </div>
+
+        <div class="escherRow">
+          <label for="pivotY">Pivot Y</label>
+          <input
+            id="pivotY"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value="0.5">
+          <output>0.50</output>
+        </div>
+
+        <button id="escherReset" type="button">
+          Reset
+        </button>
+
+      </details>
+    </div>
 
   </div>
 
@@ -601,6 +783,9 @@
 
       <dt>LAUNCH</dt>
       <dd>Hold to charge, release to launch</dd>
+
+      <dt>TILT stick</dt>
+      <dd>Drag to tilt the table while playing</dd>
     </dl>
 
     <form method="dialog">
@@ -624,6 +809,14 @@
     </div>
 
     <button id="touchLaunch">LAUNCH</button>
+
+    <div id="touchTilt" aria-label="Tilt table">
+      <span class="tilt-arrow up">&#9650;</span>
+      <span class="tilt-arrow down">&#9660;</span>
+      <span class="tilt-arrow left">&#9664;</span>
+      <span class="tilt-arrow right">&#9654;</span>
+      <div id="touchTiltKnob">TILT</div>
+    </div>
 
   </div>
 
