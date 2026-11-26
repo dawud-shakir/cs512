@@ -145,6 +145,7 @@ const game = {
   field: 0,
   tilt: [0, 0],
   tilting: [false, false, false, false],
+  tiltStick: [0, 0],
   difficulty: 0.5,
   state: "ready",
   charge: 0,
@@ -186,6 +187,7 @@ function setPlunger(down) {
 }
 
 function setTilt(i, down) { game.tilting[i] = down; }
+function setTiltStick(x, y) { game.tiltStick = [x, y]; }
 
 function setFlipper(i, down) {
   for (const f of table.flippers) if (f.side === (i === 0 ? 1 : -1)) f.pressed = down;
@@ -331,7 +333,8 @@ function stepPhysics(dt) {
   game.launch = Math.max(0, game.launch - dt);
   const [left, right, down, up] = game.tilting;
   const fieldTilt = FIELDS[game.field].tilt ?? [0, 0];
-  const tiltTarget = [right - left, up - down].map((d, i) => TILT_MAX * d + fieldTilt[i]);
+  const tiltTarget = [right - left + game.tiltStick[0], up - down + game.tiltStick[1]]
+    .map((d, i) => TILT_MAX * Math.max(-1, Math.min(1, d)) + fieldTilt[i]);
   game.tilt = game.tilt.map((t, i) => approach(t, tiltTarget[i], TILT_SPEED * dt));
   for (const bp of table.bumpers) bp.lit = Math.max(0, bp.lit - dt);
   for (const a of table.arrows) a.lit = Math.max(0, a.lit - dt);
