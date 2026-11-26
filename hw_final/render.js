@@ -29,6 +29,7 @@ precision highp float;
 const int NO_MAPPING = 0, EMISSION_MAPPING = 1, FLOOR_MAPPING = 2;
 const int CIRCUIT_FLOOR = 0, CONFORMAL_FLOOR = 1, PLAIN_FLOOR = 2;
 const int MAX_ARROWS = 32;
+const int MAX_FIELDS = 8;
 const float ARROW_FLASH = 8.0, ARROW_HALO = 0.6;
 const float CONFORMAL_GAIN = 0.8, PLAIN_GRAY = 128.0 / 255.0;
 const float Ka = 1.6;
@@ -48,7 +49,7 @@ uniform vec3 uBoardOrigin;
 uniform vec3 uBoardX;
 uniform vec3 uBoardY;
 uniform vec3 uFloorNormal;
-uniform vec4 uFloorRects[3];
+uniform vec4 uFloorRects[MAX_FIELDS];
 uniform vec4 uClipPlane;
 uniform vec2 uScreenSize;
 uniform vec3 uFloorEmissive;
@@ -128,11 +129,11 @@ vec3 playfield(vec3 R) {
   float lod = log2(1.0 + t * 0.2);
   float rd = FOG_DENSITY * max(t - FOG_START * 0.5, 0.0);
   float atten = exp(-rd * rd);
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < MAX_FIELDS; i++) {
     vec4 r = uFloorRects[i];
     if (all(greaterThanEqual(p, r.xy)) && all(lessThanEqual(p, r.zw))) {
       vec2 uv = (p - r.xy) / (r.zw - r.xy);
-      return mix(uFogColor, sampleField(i, floorUv(uv, r), p, lod), atten);
+      return mix(uFogColor, sampleField(i % 3, floorUv(uv, r), p, lod), atten);
     }
   }
   return vec3(0.01);
@@ -822,6 +823,7 @@ void main() {
 
 const NO_MAPPING = 0, EMISSION_MAPPING = 1, FLOOR_MAPPING = 2;
 const CIRCUIT_FLOOR = 0, CONFORMAL_FLOOR = 1, PLAIN_FLOOR = 2;
+const MAX_ARROWS = 32, MAX_FIELDS = 8;
 
 const LIGHTS = [
   { pos: [-22, 8, 22], color: [0.55, 0.65, 0.85] },
@@ -1086,7 +1088,7 @@ function getFlipperMesh(f) {
   return mesh;
 }
 
-const WALL_POSTS = (() => {
+function collectWallPosts() {
   const seen = new Map();
   for (const w of table.walls) {
     if (w.hidden) continue;
@@ -1096,7 +1098,8 @@ const WALL_POSTS = (() => {
     }
   }
   return [...seen.values()];
-})();
+}
+let wallPosts = collectWallPosts();
 
 function createTrailBuffer(name, size) {
   const buffer = gl.createBuffer();
@@ -1159,8 +1162,10 @@ const MATERIALS = {
   steel: { color: [0.15, 0.16, 0.18], ks: 0.8, shininess: 80, reflect: 0.4 },
 };
 
-const fieldMaterials = fieldTextures.map((texture, i) =>
-  ({ ...MATERIALS.playfield, texture, mirror: true, rect: floorRect(i) }));
+function fieldMaterial(i) {
+  return { ...MATERIALS.playfield, texture: fieldTextures[i % fieldTextures.length], mirror: true, rect: floorRect(i) };
+}
+let fieldMaterials = table.fields.map((_, i) => fieldMaterial(i));
 
 const smoothFactor = (rate60, dt) => 1 - Math.pow(1 - rate60, dt * 60);
 
@@ -1349,11 +1354,11 @@ function drawFlipper(f) {
 }
 
 function drawPlunger() {
-  const x = (LANE_X + table.fields[0].x1) / 2;
+  const { x, y } = table.launch;
   const flash = 3 * game.launch / LAUNCH_FLASH;
   for (let i = 0; i < COIL_RINGS; i++) {
     const lit = clamp(game.charge * COIL_RINGS - i, 0, 1);
-    draw(torusMesh, multiply(translate(x, COIL_START + i * COIL_SPACING, BALL_RADIUS), scale(COIL_RADIUS, COIL_RADIUS, COIL_RADIUS)),
+    draw(torusMesh, multiply(translate(x, y + COIL_START + i * COIL_SPACING, BALL_RADIUS), scale(COIL_RADIUS, COIL_RADIUS, COIL_RADIUS)),
       MATERIALS.coil, 0.04 + 0.5 * lit + flash);
   }
 }
@@ -1367,7 +1372,7 @@ function drawScene(withBall = true) {
   parent = board;
   table.fields.forEach(drawCabinet);
   table.walls.forEach(drawWall);
-  WALL_POSTS.forEach(drawWallPost);
+  wallPosts.forEach(drawWallPost);
   table.bumpers.forEach(drawBumper);
   table.flippers.forEach(drawFlipper);
   drawPlunger();
@@ -1403,7 +1408,22 @@ function floorRect(i) {
   return [x0, i === 0 ? y0 + CABINET.front : y0, x1, y1];
 }
 
-const FLOOR_RECTS_FLAT = new Float32Array(table.fields.flatMap((_, i) => floorRect(i)));
+function packFloorRects() {
+  const data = new Float32Array(MAX_FIELDS * 4);
+  data.set(table.fields.slice(0, MAX_FIELDS).flatMap((_, i) => floorRect(i)));
+  return data;
+}
+let floorRects = packFloorRects();
+const arrowData = new Float32Array(MAX_ARROWS * 3);
+
+function resetTable() {
+  wallPosts = collectWallPosts();
+  fieldMaterials = table.fields.map((_, i) => fieldMaterial(i));
+  floorRects = packFloorRects();
+  cameraRect = null;
+  chaseEye = chaseTarget = null;
+  trail.length = 0;
+}
 
 function setView(matrix, clipPlane) {
   view = matrix;
@@ -1414,7 +1434,7 @@ function setView(matrix, clipPlane) {
   gl.uniform3fv(uniforms.uBoardX, transformDirection(floorView, [1, 0, 0]));
   gl.uniform3fv(uniforms.uBoardY, transformDirection(floorView, [0, 1, 0]));
   gl.uniform3fv(uniforms.uFloorNormal, transformDirection(floorView, [0, 0, 1]));
-  gl.uniform4fv(uniforms.uFloorRects, FLOOR_RECTS_FLAT);
+  gl.uniform4fv(uniforms.uFloorRects, floorRects);
   gl.uniform4fv(uniforms.uClipPlane, clipPlane);
   gl.uniformMatrix3fv(uniforms.uView, false, [0, 1, 2, 4, 5, 6, 8, 9, 10].map(i => view[i]));
 }
@@ -1632,10 +1652,12 @@ function render(dt, insets, ballCam, zoom, dev = {}) {
   gl.uniform3fv(uniforms.uLightColor, LIGHTS.flatMap(l => l.color));
   gl.uniform3fv(uniforms.uFogColor, palette.fog);
   gl.uniform3fv(uniforms.uFloorEmissive, palette.insert);
-  gl.uniform3fv(uniforms.uArrows, table.arrows.flatMap(a => [a.p[0], a.p[1], a.lit / ARROW_LIT]));
+  arrowData.fill(0);
+  arrowData.set(table.arrows.slice(0, MAX_ARROWS).flatMap(a => [a.p[0], a.p[1], a.lit / ARROW_LIT]));
+  gl.uniform3fv(uniforms.uArrows, arrowData);
   const style = floorStyle === CONFORMAL_FLOOR && conformalSky === null ? CIRCUIT_FLOOR : floorStyle;
   const floorTextures = style === CONFORMAL_FLOOR ? fieldTextures.map(() => conformalSky) : fieldTextures;
-  fieldMaterials.forEach((mat, i) => { mat.texture = floorTextures[i]; });
+  fieldMaterials.forEach((mat, i) => { mat.texture = floorTextures[i % floorTextures.length]; });
   gl.uniform1i(uniforms.uFloorStyle, style);
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D, floorTextures[0]);

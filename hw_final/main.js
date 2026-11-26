@@ -178,12 +178,41 @@ function setTouchMode(on) {
 }
 
 const hud = document.getElementById("hud");
+let hudNote = "";
+function showNote(text) {
+  hudNote = text;
+  setTimeout(() => { if (hudNote === text) hudNote = ""; }, 4000);
+}
 function updateHud() {
   const touch = document.body.classList.contains("touch");
   const status = game.state === "over" ? (touch ? "GAME OVER - tap LAUNCH" : "GAME OVER - press Space")
     : game.state === "ready" ? (touch ? "Hold LAUNCH" : "Hold Space to launch") : "";
-  hud.textContent = `Score ${game.score}   Balls ${game.balls}   Level ${game.field + 1}   ${status}`;
+  hud.textContent = `Score ${game.score}   Balls ${game.balls}   Level ${game.field + 1}   ${status}` + (hudNote && `\n${hudNote}`);
 }
+
+const builtInTable = { fields: [...FIELDS], gates: table.gates, walls: table.walls, bumpers: table.bumpers,
+                       flippers: table.flippers, arrows: table.arrows, launch: table.launch };
+function restoreTable() {
+  FIELDS.splice(0, FIELDS.length, ...builtInTable.fields);
+  for (const key of ["gates", "walls", "bumpers", "flippers", "arrows", "launch"]) table[key] = builtInTable[key];
+  resetTable();
+  newGame();
+  showNote("Built-in table");
+}
+function loadMap(text) {
+  const map = mapFormat.parse(text);
+  mapFormat.install(map);
+  resetTable();
+  newGame();
+  showNote(`Loaded ${map.name}`);
+}
+function selectMap(name) {
+  if (!name) return restoreTable();
+  fetch(`maps/${name}`).then(r => { if (!r.ok) throw new Error(`Couldn't load maps/${name}`); return r.text(); })
+    .then(loadMap).catch(error => showNote(error.message));
+}
+const requestedMap = new URLSearchParams(location.search).get("map");
+if (requestedMap) (typeof devTools !== "undefined" ? devTools.setMap : selectMap)(requestedMap);
 
 document.body.classList.toggle("touch", matchMedia("(pointer: coarse)").matches);
 if (escherControls) escherControls.open = !document.body.classList.contains("touch");

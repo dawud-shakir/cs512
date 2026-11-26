@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#020a1c">
+  <title>Map Builder</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #020a1c; }
+    body {
+      display: grid; grid-template-rows: auto 1fr auto; height: 100vh;
+      font: 13px system-ui, sans-serif; color: #dff6ff; user-select: none; -webkit-user-select: none;
+    }
+    * { box-sizing: border-box; }
+    h2 { margin: 14px 0 8px; font: 600 12px monospace; letter-spacing: 0.12em; text-transform: uppercase;
+         color: #9fe6ff; text-shadow: 0 0 6px #39c6ff; }
+    button, input[type="text"] {
+      padding: 6px 14px; font: 600 13px system-ui, sans-serif; color: #9fe6ff; cursor: pointer;
+      text-shadow: 0 0 6px #39c6ff; background: rgba(2, 10, 26, 0.85);
+      border: 1px solid rgba(80, 200, 255, 0.6); border-radius: 20px;
+      box-shadow: 0 0 10px rgba(40, 160, 255, 0.45), inset 0 0 8px rgba(40, 160, 255, 0.25);
+    }
+    button:hover { border-color: #9fe6ff; }
+    button:disabled { opacity: 0.35; cursor: default; }
+    button.active, button.primary { background: rgba(57, 198, 255, 0.85); color: #02060f; text-shadow: none; }
+    button.danger { color: #ffb3b3; border-color: rgba(255, 120, 120, 0.6); text-shadow: 0 0 6px #ff5c5c;
+                    box-shadow: 0 0 10px rgba(255, 90, 90, 0.3), inset 0 0 8px rgba(255, 90, 90, 0.15); }
+    button:focus-visible, input:focus-visible { outline: 2px solid #9fe6ff; outline-offset: 2px; }
+    input[type="text"] { cursor: text; text-shadow: none; color: #dff6ff; width: 180px; }
+    input[type="range"] { flex: 1; min-width: 0; width: 0; accent-color: #39c6ff; margin: 0; }
+    input[type="checkbox"] { accent-color: #39c6ff; margin: 0; }
+    select {
+      flex: 1; padding: 4px 8px; font: 600 12px system-ui, sans-serif; color: #dff6ff;
+      background: rgba(12, 28, 56, 0.9); border: 1px solid rgba(80, 200, 255, 0.45); border-radius: 8px;
+    }
+    output { min-width: 3.2em; text-align: right; font-family: monospace; color: #9fe6ff; }
+
+    header, footer { display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+                     background: rgba(2, 10, 26, 0.92); border-bottom: 1px solid rgba(80, 200, 255, 0.35); }
+    header { flex-wrap: wrap; }
+    header .spacer { flex: 1; }
+    footer { border-bottom: 0; border-top: 1px solid rgba(80, 200, 255, 0.35); padding: 6px 16px;
+             font: 12px monospace; color: #a9d6f0; justify-content: space-between; }
+    #status { color: #9fe6ff; text-shadow: 0 0 6px #39c6ff; }
+
+    main { display: grid; grid-template-columns: 1fr 276px; min-height: 0; }
+    #stage { position: relative; min-width: 0; min-height: 0; }
+    canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+    #hint {
+      position: absolute; left: 16px; right: 16px; bottom: 14px; margin: 0; padding: 8px 14px;
+      font-size: 12px; color: #a9d6f0; text-align: center; pointer-events: none;
+      background: rgba(2, 10, 26, 0.85); border: 1px solid rgba(80, 200, 255, 0.35); border-radius: 14px;
+    }
+    aside {
+      overflow: auto; padding: 4px 14px 16px; border-left: 1px solid rgba(80, 200, 255, 0.35);
+      background: rgba(2, 10, 26, 0.92);
+    }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .wide { grid-column: 1 / -1; width: 100%; }
+    #delete { margin-top: 10px; }
+    .prop { display: flex; align-items: center; gap: 8px; margin: 8px 0; color: #a9d6f0; font-weight: 600; }
+    .prop > span { min-width: 5.5em; }
+    .prop.check > span { min-width: 0; }
+    #properties button { width: 100%; margin: 4px 0; }
+    .tips { margin: 8px 0 0; font-size: 12px; line-height: 1.7; color: #7fb6d6; }
+    .tips b { color: #a9d6f0; font-family: monospace; }
+
+    dialog {
+      width: min(380px, calc(100vw - 32px)); padding: 20px 24px; border-radius: 14px; color: #dff6ff;
+      font: 14px system-ui, sans-serif; background: rgba(2, 8, 22, 0.96); border: 1px solid rgba(80, 200, 255, 0.6);
+      box-shadow: 0 0 24px rgba(20, 120, 255, 0.45);
+    }
+    dialog::backdrop { background: rgba(0, 4, 12, 0.6); }
+    dialog p { margin: 10px 0 16px; color: #a9d6f0; line-height: 1.5; }
+    dialog .choices { display: grid; gap: 8px; margin-bottom: 14px; }
+    dialog form { text-align: right; }
+  </style>
+</head>
+
+<body>
+  <header>
+    <input id="mapName" type="text" maxlength="60" title="Table name">
+    <button id="new">New</button>
+    <button id="import">Open</button>
+    <button id="export">Save</button>
+    <button id="folder" title="Choose the maps folder that Save writes into">Folder…</button>
+    <button id="copy">Copy JSON</button>
+    <span class="spacer"></span>
+    <button id="undo" disabled>Undo</button>
+    <button id="redo" disabled>Redo</button>
+    <button id="fit">Fit (F)</button>
+    <button id="play" class="primary">Play (P)</button>
+  </header>
+
+  <main>
+    <section id="stage">
+      <canvas id="mapCanvas" tabindex="0"></canvas>
+      <p id="hint"></p>
+    </section>
+
+    <aside>
+      <h2>Add</h2>
+      <div class="grid">
+        <button data-add="bumpers">Bumper</button>
+        <button data-add="walls">Wall</button>
+        <button data-add="flippers">Flipper</button>
+        <button data-add="arrows">Arrows</button>
+        <button id="addField" class="wide">Field above</button>
+      </div>
+
+      <h2 id="selectionTitle">Nothing selected</h2>
+      <div id="properties"></div>
+      <button id="delete" class="wide danger" disabled>Delete</button>
+
+      <h2>Test</h2>
+      <label class="prop">
+        <span>Assist</span>
+        <input id="assist" type="range" min="0" max="10" value="5">
+        <output id="assistValue">5</output>
+      </label>
+      <label class="prop check"><input id="snap" type="checkbox" checked><span>Snap to the grid</span></label>
+      <p class="tips">
+        <b>P</b> play, <b>Esc</b> stop<br>
+        <b>Z /</b> flip, <b>Space</b> launch<br>
+        <b>⇧/⌘ click</b> or <b>⇧/⌘ drag</b> select several<br>
+        <b>Arrows</b> nudge the selection<br>
+        <b>⌘Z</b> undo, <b>⇧⌘Z</b> redo<br>
+        <b>⌘C</b> copy, <b>⌘V</b> paste at the mouse<br>
+        <b>Scroll</b> zoom, <b>drag</b> pan
+      </p>
+    </aside>
+  </main>
+
+  <footer>
+    <span id="status">Ready</span>
+    <span id="coordinates"></span>
+  </footer>
+
+  <dialog id="newDialog">
+    <h2>New table</h2>
+    <p>Start from the game's own table, or from one empty field with a launch lane and flippers.
+      Undo brings the current table back.</p>
+    <div class="choices">
+      <button data-template="classic">Classic table</button>
+      <button data-template="empty">Empty table</button>
+    </div>
+    <form method="dialog"><button>Cancel</button></form>
+  </dialog>
+  <input id="file" type="file" accept=".json,application/json" hidden>
+
+  <script src="../transforms.js"></script>
+  <script src="../physics.js"></script>
+  <script src="map.js"></script>
+  <script src="builder.js"></script>
+</body>
+
+</html>

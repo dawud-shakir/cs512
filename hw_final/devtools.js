@@ -11,6 +11,7 @@ const devTools = (() => {
     palette: -1,
     mirror: 0.3,
     floor: PLAIN_FLOOR,
+    map: "",
   };
 
   const style = document.createElement("style");
@@ -49,6 +50,10 @@ const devTools = (() => {
     .dev-checks { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: #a9d6f0; }
     .dev-checks label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
     .dev-checks input { accent-color: #39c6ff; margin: 0; }
+    .dev-checks select {
+      max-width: 110px; padding: 2px 4px; font: 600 11px system-ui, sans-serif; color: #dff6ff;
+      background: rgba(12, 28, 56, 0.9); border: 1px solid rgba(80, 200, 255, 0.45); border-radius: 8px;
+    }
     #devStats {
       font: 500 11px/1.4 monospace; color: #9fe6ff; white-space: pre;
       padding-top: 6px; border-top: 1px solid rgba(80, 200, 255, 0.25);
@@ -102,6 +107,7 @@ const devTools = (() => {
       <label><input id="devBloom" type="checkbox" checked> Bloom</label>
       <label><input id="devTrail" type="checkbox" checked> Trail</label>
       <label><input id="devShadows" type="checkbox" checked> Shadows</label>
+      <label>Map <select id="devMap"><option value="">Built-in</option></select></label>
     </div>
     <div id="devStats"></div>
   `;
@@ -116,6 +122,28 @@ const devTools = (() => {
   const floorBtns = [...panel.querySelectorAll("#devFloors button")];
   const mirrorInput = panel.querySelector("#devMirror");
   const mirrorOutput = panel.querySelector("#devMirrorValue");
+  const mapSelect = panel.querySelector("#devMap");
+
+  async function listMaps() {
+    const names = new Set();
+    try { for (const name of await (await fetch("maps/index.json")).json()) names.add(name); } catch {}
+    try {
+      const listing = await (await fetch("maps/")).text();
+      for (const m of listing.matchAll(/href="([^"?]+\.json)"/g)) names.add(decodeURIComponent(m[1].split("/").pop()));
+    } catch {}
+    names.delete("index.json");
+    return [...names].sort();
+  }
+  listMaps().then(names => {
+    for (const name of names) mapSelect.add(new Option(name.replace(/\.json$/, ""), name));
+    mapSelect.value = state.map;
+  });
+
+  function setMap(name) {
+    state.map = name;
+    mapSelect.value = name;
+    selectMap(name);
+  }
 
   function setFloor(i) {
     state.floor = i;
@@ -168,6 +196,7 @@ const devTools = (() => {
   floorBtns.forEach((b, i) => b.addEventListener("click", () => { setFloor(i); b.blur(); }));
   mirrorInput.addEventListener("input", () => setMirror(mirrorInput.value));
   mirrorInput.addEventListener("change", () => mirrorInput.blur());
+  mapSelect.addEventListener("change", () => { setMap(mapSelect.value); mapSelect.blur(); });
   speedInput.addEventListener("input", () => setSpeed(speedInput.value));
   speedInput.addEventListener("change", () => speedInput.blur());
   panel.querySelector("#devSpeedReset").addEventListener("click", e => { setSpeed(1); e.target.blur(); });
@@ -203,6 +232,7 @@ const devTools = (() => {
   return {
     state,
     toggle,
+    setMap,
     setSpeed,
     setPaused,
     teleport,

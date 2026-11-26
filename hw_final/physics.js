@@ -3,6 +3,7 @@ const GRAVITY = 30;
 const SUBSTEPS = 8;
 const MAX_SPEED = 60;
 const LANE_X = 18.4;
+const LANE_WIDTH = 1.6;
 const FLIPPER_Y = 4.6;
 const GATE_X = 9.2;
 const GATE_HALF = 2.0;
@@ -84,6 +85,7 @@ const GATES = [
 ];
 
 const table = {
+  launch: { x: LANE_X + LANE_WIDTH / 2, y: 0 },
   fields: FIELDS,
   gates: GATES,
   walls: [
@@ -151,10 +153,11 @@ const game = {
   sounds: new Set(),
 };
 
-const ballOnPlunger = () => game.ball.p[0] > LANE_X && game.ball.p[1] < 2;
+const ballOnPlunger = () =>
+  Math.abs(game.ball.p[0] - table.launch.x) < LANE_WIDTH / 2 && game.ball.p[1] < table.launch.y + 2;
 
 function resetBall() {
-  game.ball.p = [(LANE_X + FIELDS[0].x1) / 2, 0.5 + BALL_RADIUS];
+  game.ball.p = [table.launch.x, table.launch.y + 0.5 + BALL_RADIUS];
   game.ball.v = [0, 0];
   game.ball.rotation = identity();
   game.charging = false;
@@ -327,7 +330,8 @@ function stepPhysics(dt) {
   if (game.charging) game.charge = Math.min(1, game.charge + dt);
   game.launch = Math.max(0, game.launch - dt);
   const [left, right, down, up] = game.tilting;
-  const tiltTarget = [right - left, up - down].map(d => TILT_MAX * d);
+  const fieldTilt = FIELDS[game.field].tilt ?? [0, 0];
+  const tiltTarget = [right - left, up - down].map((d, i) => TILT_MAX * d + fieldTilt[i]);
   game.tilt = game.tilt.map((t, i) => approach(t, tiltTarget[i], TILT_SPEED * dt));
   for (const bp of table.bumpers) bp.lit = Math.max(0, bp.lit - dt);
   for (const a of table.arrows) a.lit = Math.max(0, a.lit - dt);
